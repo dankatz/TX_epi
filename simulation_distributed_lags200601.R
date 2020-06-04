@@ -95,7 +95,8 @@ mu <- exp(beta0_intercept +
 mu[is.na(mu)] <- 5
 #generate Y-values
 y <- rpois(n=n, lambda=mu)
-
+y2 <- rpois(n =n, lambda = (exp(beta0_intercept)))
+mean(y); mean(y2); mean(y) - mean(y2)
 #data set
 data <- data.frame(obs_n = 1:length(y), y, x1, x1_lag0, x1_lag1, x1_lag2, x1_lag3, x1_lag4, x1_lag5)
 
@@ -114,15 +115,47 @@ ggplot(data, aes(x= obs_n, y = y)) + geom_point(color = "red") + geom_line(color
 ### trying out the dlnm package #####################################
 library("dlnm")
 library(splines)
-chi.pm <- crossbasis(data2$x, lag = 5, argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 3))
-model1 <- glm(y ~ chi.pm, family = poisson, data = data2)
+
+#the built in example
+#https://cran.r-project.org/web/packages/dlnm/vignettes/dlnmTS.pdf
+head(chicagoNMMAPS)
+cb1.pm <- crossbasis(chicagoNMMAPS$pm10, lag=15, argvar=list(fun="lin"),
+                     arglag=list(fun="poly",degree=4))
+cb1.temp <- crossbasis(chicagoNMMAPS$temp, lag=3, argvar=list(df=5),
+                       arglag=list(fun="strata",breaks=1))
+
+model1 <- glm(death ~ cb1.pm + cb1.temp + ns(time, 7*14) + dow,
+              family=quasipoisson(), chicagoNMMAPS)
+
+pred1.pm <- crosspred(cb1.pm, model1, at=0:20, bylag=0.2, cumul=TRUE)
+
+plot(pred1.pm, "slices", var=10, col=3, ylab="RR", ci.arg=list(density=15,lwd=2),
+       main="Association with a 10-unit increase in PM10")
+plot(pred1.pm, "slices", var=10, col=2, cumul=TRUE, ylab="Cumulative RR",
+       main="Cumulative association with a 10-unit increase in PM10")
+
+#trying with the simulated data
+data2 <- dplyr::select(data, timestep = obs_n, x = x1, y) %>% slice(1:1500) %>% 
+  mutate(x2 = scale(x)) #centered values divided by one SD
+head(data2)
+hist(data2$y)
+hist(data2$x2)
+x2_min <- min(data2$x2)
+x_lag <- crossbasis(data2$x2, lag = 10, 
+                    #argvar = list(fun = "ns"), arglag = list())
+                    #argvar=list(fun = "thr", side = "d"))
+                    argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 4))
+          # crossbasis(data2$x2, lag=5, argvar=list(df=1),
+          #   arglag=list(fun="strata",breaks=5))
+summary(x_lag)
+model1 <- glm(y ~ x_lag, family = quasipoisson, data = data2)
 summary(model1)
 
-pred1.pm <- crosspred(chi.pm, model1, at = 0:20, bylag = 0.2, cumul = TRUE)
-plot(pred1.pm, "slices", var=10, col=3, ylab="RR", ci.arg=list(density=15,lwd=2),
-     main="Association with a 10-unit increase in PM10")
+pred1.pm <- crosspred(x_lag, model1, at = 1, bylag = 0.2, cen = x2_min, cumul = TRUE)
+plot(pred1.pm, "slices", var=1, cumul = TRUE, 
+     main="Association with a 1-unit increase in independent variable")
 
-plot(pred1.pm, "slices", var=10, col=2, cumul=TRUE, ylab="Cumulative RR",
+plot(pred1.pm, "slices", var=0.5, col=2, cumul=TRUE, ylab="Cumulative RR",
      main="Cumulative association with a 10-unit increase in PM10")
 
 #### trying out Wells 2016 bayesian approach to distributed lags (following Welty et al. 2009) #####################
@@ -142,7 +175,7 @@ cat("
   ### model ########### 
     model{
     
-    # # # assign missing data to its distribution
+    # assign missing data to its distribution
     for(d in 1:N){
     x[d] ~ dnorm(x_mean, x_prec)
     #x_prec <- 1/(x_sd * x_sd)
@@ -222,3 +255,18 @@ filter(results_params, param == "al" | param == "be") %>%
   ggplot(aes(x = parameter, y = Mean, ymax = X97.5., ymin = X2.5.)) + geom_pointrange() + theme_bw() +
   geom_abline(slope = 0, intercept = 0, lty = 2) +
   ylab("parameter estimate")
+
+
+
+library(raster)
+tgb <- raster("E:/lidar/2017 LiDAR/trees_ground_build_v2_UTM17_v2_within_D.tif")
+summary(tgb)
+sampleRandom(tgb, size = 10000) %>%
+  as.factor()%>%
+  summary()
+2160/(10000)
+
+test <- crop(tgb, )
+plot(test)
+small <- extent(tgb)
+small@xmin <- 320000
