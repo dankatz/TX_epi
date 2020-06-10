@@ -27,3 +27,5 @@ NAB_tx <- left_join(NAB, NAB_locations) %>%
                 Total.Pollen.Count, Cupressaceae, 
                 grass = Gramineae...Poaceae, 
                 Ambrosia, Quercus, Ulmus, Acer, Platanus, NAB_station) 
+
+#testing git upload
