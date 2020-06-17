@@ -118,28 +118,27 @@ library(tidyr)
 #write_csv(pd3, "C:/Users/dsk856/Box/texas/NAB/NAB_weather200611.csv")
 set.seed(100)
 pd3 <- read_csv("C:/Users/dsk856/Box/texas/NAB/NAB_weather200611.csv", guess_max = 40000)
-pd4 <- pd3 %>% mutate(mo = month(date),
-              doy = as.numeric(day(date)),
-              year = year(date)
-              #train0_test1 = rbinom(n = nrow(pd3) , size = 1, prob = 0.2)
-              ) %>%
-                    dplyr::select(c(#train0_test1, 
-                                    NAB_station, mo, doy, year, ja, cup_other, trees, pol_other, tot_pol,
+pd3 <- pd3 %>% mutate(mo = month(date),
+                  doy = as.numeric(day(date)),
+                  year = year(date),
+                  year_f = paste0("y_", year(date))) %>% 
+        filter(NAB_station != "College Station",
+               NAB_station != "Waco A",
+               NAB_station != "Waco B") 
+pd4 <- pd3 %>% dplyr::select(c(#train0_test1, 
+                                    NAB_station, ja, cup_other, trees, pol_other, tot_pol,
+                                    mo, doy, year, year_f, date,
                             starts_with("met_"), 
                             starts_with("ghcn_")))%>% 
                       select(-ghcn_psun, -ghcn_tsun, -ghcn_snow, -ghcn_snwd, - ghcn_tavg, -ghcn_wesd,-ghcn_wesf,
-                             -starts_with("ghcn_wt"),
+                             -starts_with("ghcn_wt")
                              ) %>% 
-                      # mutate(
-                      #        ja_orig = ja,
-                      #        ja = ifelse(train0_test1 == 0, ja_orig, NA),
-                      #        cup_other_orig = cup_other,
-                      #        cup_other = ifelse(train0_test1 == 0, cup_other_orig, NA),
-                      #        trees_orig = trees,
-                      #        trees = ifelse(train0_test1 == 0, trees_orig, NA),
-                      #        pol_other_orig = pol_other,
-                      #        pol_other = ifelse(train0_test1 == 0, pol_other_orig, NA),) %>%
-              mutate(ja_ma3 = slide_vec(ja, ~mean(.x[c(1,3)], na.rm = TRUE), .before = 1, .after = 1),
+              mutate(
+                   ja_l1 = lag(ja, 1),
+                   ja_l2 = lag(ja, 2),
+                   ja_lead1 = lead(ja, 1),
+                   ja_lead2 = lead(ja, 2),
+                   ja_ma3 = slide_vec(ja, ~mean(.x[c(1,3)], na.rm = TRUE), .before = 1, .after = 1),
                    ja_ma5 = slide_vec(ja, ~mean(.x[c(1:2,4:5)], na.rm = TRUE), .before = 2, .after = 2),
                    ja_ma7 = slide_vec(ja, ~mean(.x[c(1:3,5:7)], na.rm = TRUE), .before = 3, .after = 3),
                    ja_ma9 = slide_vec(ja, ~mean(.x[c(1:4,6:9)], na.rm = TRUE), .before = 4, .after = 4),
@@ -161,263 +160,161 @@ pd4 <- pd3 %>% mutate(mo = month(date),
         # {filter(., train0_test1 == 1) ->> TestSet} 
 
 is.nan.data.frame <- function(x) {do.call(cbind, lapply(x, is.nan))}
+#is.nan.data.frame(pd4)
 pd4[is.nan(pd4)] <- NA
 ja_missing_data <- pd4 %>% filter(is.na(ja))
 pd4 <- filter(pd4, !is.na(ja))
 
 str(pd4)
 
-### predict missing values ###################################################################
-library(randomForest)
+### using a partial tidymodel workflow with ranger ############################################
+
+pd5 <- pd4 %>% #filter(NAB_station == "San Antonio A") %>% 
+  select_if(~sum(!is.na(.)) > 0)
+
+pd5_split <- initial_split(pd5, prop = 0.8)
+pd5_recipe <- training(pd5_split) %>%
+  recipe(ja ~.) %>%
+  step_log(all_outcomes(), contains("_ma"), offset = 0.1) %>% 
+  #step_nzv(all_predictors()) %>% 
+  step_meanimpute(all_numeric()) %>%
+  step_naomit(all_predictors()) %>%
+  step_center(all_numeric(), -all_outcomes(), -contains("_ma"), -date) %>%
+  step_scale(all_numeric(), -all_outcomes(), -contains("_ma"), -date) %>%
+  step_date(date, features = c("doy", "month", "year")) %>% 
+  #step_num2factor(date_year, transform = as.integer, levels = paste0("y", 2008:2019)) %>% 
+  step_dummy(all_nominal()) %>% 
+  prep()
+
+#unique(pd5$year)
+#?step_num2factor
+pd5_training <- pd5_recipe %>% bake(training(pd5_split))
+pd5_testing  <- pd5_recipe %>% bake(testing(pd5_split)) 
+pd5_testing_nab <- testing(pd5_split)$NAB_station
+pd5_ranger <- rand_forest(trees = 1000, mode = "regression", mtry = 5) %>%
+  set_engine("ranger", importance = "impurity") %>%
+  fit(ja ~ ., data = pd5_training)
+pd5_ranger
+ranger_obj <- pd5_ranger$fit
+sort(ranger_obj$variable.importance)
+ranger_pred <- predict(pd5_ranger, pd5_testing, type = "numeric")
+
+
+pd5_testing %>% mutate(NAB_station = pd5_testing_nab,
+                         ja = pd5_testing$ja,
+                         ja_hat_ranger = unlist(ranger_pred)) %>% 
+  ggplot(aes(x = ja + 0.1, y = ja_hat_ranger + 0.1, color = NAB_station)) + 
+  geom_point() + geom_smooth(method = "lm") + geom_abline(slope = 1, intercept = 0) + theme_bw()
 
-focal_station <- "Georgetown" #unique(pd4$NAB_station)
+ja_missing_data_baked <- pd5_recipe %>% bake(new_data = ja_missing_data)
+ja_missing_data_pred <- predict(pd5_ranger, ja_missing_data_baked)
+#hist(unlist(ja_missing_data_pred))
 
-TrainSet2 <- TrainSet %>% select(-ja_orig, -cup_other_orig, - trees_orig, -pol_other_orig, -tot_pol)
-  
-#sapply(TrainSet2, function(y) sum(length(which(is.na(y))))) #count number of NAs in each column
-TrainSet2 <- TrainSet2 %>% 
-              filter(NAB_station == focal_station) %>% 
-              filter(!is.na(ja)) %>% 
-              replace(., is.na(.), 0)
+ja_missing_data_pred_join <- ja_missing_data_baked %>% 
+  mutate(NAB_station = ja_missing_data$NAB_station, #get pre-baked versions of the variables
+         year = ja_missing_data$year,
+         mo = ja_missing_data$mo,
+         doy = ja_missing_data$doy,
+        ja_hat_log = unlist(ja_missing_data_pred),
+        ja_hat = exp(ja_hat_log ) - 0.1) %>% 
+                              select(NAB_station, year, mo, doy, ja_hat, ja_hat_log)
+pd6 <- left_join(pd3, ja_missing_data_pred_join)
 
-#start_time <- Sys.time() 
-model1 <- randomForest(ja ~ ., data = TrainSet2, importance = TRUE)
 
+pd6 %>% filter(year == 2015) %>% # & NAB_station == "Georgetown") %>% 
+ggplot(aes(x = date, y = ja + 0.1)) + geom_point() + facet_wrap(~NAB_station) + theme_bw() +
+  geom_point(aes(x = date, y = ja_hat + 0.1), color = "red") + scale_y_log10()
 
 
-#print(Sys.time() - start_time)
-model1
-importance(model1)
+### adding in CIs with the RFinterval ########################################
+# https://github.com/haozhestat/RFIntervals
+# https://haozhestat.github.io/files/manuscript_RFIntervals_FinalVersion.pdf
+library(rfinterval)
 
-#plot(model1)
+rfint_mod <- rfinterval(ja ~ ., train_data = as.data.frame(pd5_training),
+                                    test_data = as.data.frame(pd5_testing),
+                                    method =c("oob"), #, "split-conformal", "quantreg"
+                                    symmetry = TRUE, alpha = 0.05) 
+y <- pd5_testing$ja
+mean(rfint_mod$oob_interval$lo < y & rfint_mod$oob_interval$up > y)
+rfint_mod$testPred
 
-# model2 <- randomForest(taxa ~ ., data = TrainSet, ntree = 500, mtry = 6, importance = TRUE)
-# model2
+pd5_testing %>% mutate(NAB_station = pd5_testing_nab,
+                       ja = pd5_testing$ja,
+                       ja_hat_rfint_mean = unlist(rfint_mod$testPred),
+                       ja_hat_rfint_lo = unlist(rfint_mod$oob_interval$lo),
+                       ja_hat_rfint_up = unlist(rfint_mod$oob_interval$up)) %>% 
+  ggplot(aes(x = ja, y = ja_hat_rfint_mean, 
+             ymin = ja_hat_rfint_lo,
+             ymax = ja_hat_rfint_up,
+               color = NAB_station)) + 
+  geom_pointrange() + geom_smooth(method = "lm") + geom_abline(slope = 1, intercept = 0) + theme_bw()
 
-# Predicting on train set
-#predTrain <- predict(model1, TrainSet, type = "class")
-#str(predTrain)
-# Checking classification accuracy
-#table(predTrain, TrainSet$taxa)  
+#create the predictions 
+ja_missing_data_baked <- pd5_recipe %>% bake(new_data = ja_missing_data)
+rfint_mod <- rfinterval(ja ~ ., train_data = as.data.frame(pd5_training),
+                        test_data = as.data.frame(ja_missing_data_baked),
+                        method =c("oob"), #, "split-conformal", "quantreg"
+                        symmetry = TRUE, alpha = 0.05) 
 
+ja_missing_data_rfint_mod_join <- ja_missing_data_baked %>% 
+  mutate(NAB_station = ja_missing_data$NAB_station, #get pre-baked versions of the variables
+         year = ja_missing_data$year,
+         mo = ja_missing_data$mo,
+         doy = ja_missing_data$doy,
+         ja_hat_rfint_log_mean = unlist(rfint_mod$testPred),
+         ja_hat_rfint_log_lo = unlist(rfint_mod$oob_interval$lo),
+         ja_hat_rfint_log_up = unlist(rfint_mod$oob_interval$up),
+         ja_hat_rfint_log_sd = (ja_hat_rfint_log_up - ja_hat_rfint_log_lo) /(1.96 * 2)) %>% 
+  select(NAB_station, year, mo, doy, ja_hat_rfint_log_mean, ja_hat_rfint_log_sd, ja_hat_rfint_log_lo, ja_hat_rfint_log_up)
+pd7 <- left_join(pd6, ja_missing_data_rfint_mod_join)
 
+#do predictions match?
+pd7 %>% ggplot(aes(x = ja_hat_log, y = ja_hat_rfint_log_mean)) + geom_point() + facet_wrap(~NAB_station) + theme_bw()
 
-### model assessment ###############################################################
-#library(ggplot2)
-# Predicting on Validation set
-#ValidSet$taxa2 <- as.character(ValidSet$taxa) #ValidSet$taxa <- NULL #ValidSet$taxa <- ValidSet$taxa2
-#TrainSet2 <- TrainSet %>% select(-ja_orig, -cup_other_orig, - trees_orig, -pol_other_orig)
+pd7 %>% filter(year == 2015) %>% # & NAB_station == "Georgetown") %>% 
+  ggplot(aes(x = date, y = log(ja + 0.1 ))) + geom_point() + facet_wrap(~NAB_station) + theme_bw() +
+  geom_pointrange(aes(x = date,
+                     y = ja_hat_rfint_log_mean,
+                     ymin = ja_hat_rfint_log_mean - ja_hat_rfint_log_sd,
+                     ymax = ja_hat_rfint_log_mean + ja_hat_rfint_log_sd, # + ja_hat_rfint_log_sd),
+                     color = "red")) 
+  # geom_pointrange(aes(x = date + 2, 
+  #                     y = ja_hat_rfint_log_mean, 
+  #                     ymin = ja_hat_rfint_log_lo,
+  #                     ymax = ja_hat_rfint_log_up
+  #                     ), 
+  #                 color = "green") 
 
-#sapply(TestSet, function(y) sum(length(which(is.na(y))))) #count number of NAs in each column
-TestSet2 <- TestSet %>% 
-  filter(NAB_station == focal_station) %>% 
-  select(-ja) %>% 
-  replace(., is.na(.), 0) 
+pd7$ja_hat_rfint_log_mean - pd7$ja_hat_rfint_log_lo
+pd7$ja_hat_rfint_log_sd
 
-predValid <- predict(object = model1, newdata = TestSet2)
-TestSet2 <- mutate(TestSet2, predValid = predValid)
 
-ggplot(TestSet2, aes(x= predValid, y = ja_orig)) + geom_point() + theme_bw() + geom_smooth(method = "lm") + 
-  geom_abline(slope = 1, intercept = 0) #+ scale_x_log10() + scale_y_log10()
-fit <- lm(ja_orig ~ predValid, data = TestSet2)
-summary(fit)
 
-model_importance_df <- as.data.frame(importance(model1))        
-View(model_importance_df) #names(model_importance_df)
-varImpPlot(model1) 
 
-#hist(model_importance_df$MeanDecreaseGini)
-#str(model_importance_df)
 
-#save(model1, file = "C:/Users/dsk856/Box/MIpostdoc/trees/tree_identificaiton/d_rf200503.RData")
 
 
 
-### trying the tidymodel workflow #################################################
-install.packages("tidymodels")
-install.packages("dials")
-library(tidymodels)
 
-set.seed(1243)
 
-dia_split <- initial_split(diamonds, prop = .1, strata = price)
 
-dia_train <- training(dia_split)
-dia_test  <- testing(dia_split)
 
-dim(dia_train)
-#> [1] 5395   10
-dim(dia_test)
-#> [1] 48545    10
 
-dia_vfold <- vfold_cv(dia_train, v = 3, repeats = 1, strata = price)
-dia_vfold %>% 
-  mutate(df_ana = map(splits, analysis),
-         df_ass = map(splits, assessment))
 
-qplot(carat, price, data = dia_train) +
-  scale_y_continuous(trans = log_trans(), labels = function(x) round(x, -2)) +
-  geom_smooth(method = "lm", formula = "y ~ poly(x, 4)") +
-  labs(title = "Nonlinear relationship between price and carat of diamonds",
-       subtitle = "The degree of the polynomial is a potential tuning parameter")
-
-dia_rec <-
-  recipe(price ~ ., data = dia_train) %>%
-  step_log(all_outcomes()) %>%
-  step_normalize(all_predictors(), -all_nominal()) %>%
-  step_dummy(all_nominal()) %>%
-  step_poly(carat, degree = 2)
-
-prep(dia_rec)
-
-# Note the linear and quadratic term for carat and the dummies for e.g. color
-dia_juiced <- juice(prep(dia_rec))
-dim(dia_juiced)
-
-lm_model <-
-  linear_reg() %>%
-  set_mode("regression") %>%
-  set_engine("lm")
-
-rand_forest(mtry = 3, trees = 500, min_n = 5) %>%
-  set_mode("regression") %>%
-  set_engine("ranger", importance = "impurity_corrected")
-
-lm_fit1 <- fit(lm_model, price ~ ., dia_juiced)
-lm_fit1
-
-glance(lm_fit1$fit)
-tidy(lm_fit1) %>% 
-  arrange(desc(abs(statistic)))
-
-lm_predicted <- augment(lm_fit1$fit, data = dia_juiced) %>% 
-  rowid_to_column()
-select(lm_predicted, rowid, price, .fitted:.std.resid)
-
-ggplot(lm_predicted, aes(.fitted, price)) +
-  geom_point(alpha = .2) +
-  # ggrepel::geom_label_repel(aes(label = rowid), 
-  #                           data = filter(lm_predicted, abs(.resid) > 2)) +
-  labs(title = "Actual vs. Predicted Price of Diamonds")
-
-
-
-# How does dia_vfold look?
-dia_vfold
-
-# Extract analysis/training and assessment/testing data
-lm_fit2 <- mutate(dia_vfold,
-                  df_ana = map (splits,  analysis),
-                  df_ass = map (splits,  assessment))
-lm_fit2
-
-lm_fit2 <- 
-  lm_fit2 %>% 
-  # prep, juice, bake
-  mutate(
-    recipe = map (df_ana, ~prep(dia_rec, training = .x)),
-    df_ana = map (recipe,  juice),
-    df_ass = map2(recipe, 
-                  df_ass, ~bake(.x, new_data = .y))) %>% 
-  # fit
-  mutate(
-    model_fit  = map(df_ana, ~fit(lm_model, price ~ ., data = .x))) %>% 
-  # predict
-  mutate(
-    model_pred = map2(model_fit, df_ass, ~predict(.x, new_data = .y)))
 
-select(lm_fit2, id, recipe:model_pred)
 
-lm_preds <- 
-  lm_fit2 %>% 
-  mutate(res = map2(df_ass, model_pred, ~data.frame(price = .x$price,
-                                                    .pred = .y$.pred))) %>% 
-  select(id, res) %>% 
-  tidyr::unnest(res) %>% 
-  group_by(id)
-lm_preds
-metrics(lm_preds, truth = price, estimate = .pred)
 
-rf_model <- 
-  rand_forest(mtry = tune()) %>%
-  set_mode("regression") %>%
-  set_engine("ranger")
 
-parameters(rf_model)
+### previous attempts at applying the workflow package to my dataset ########################################
+#http://www.rebeccabarter.com/blog/2020-03-25_machine_learning/
+#https://hansjoerg.me/2020/02/09/tidymodels-for-machine-learning/
+#https://www.benjaminsorensen.me/post/modeling-with-parsnip-and-tidymodels/
 
-rf_model %>% 
-  parameters() %>% 
-  # Here, the maximum of mtry equals the number of predictors, i.e., 24.
-  finalize(x = select(juice(prep(dia_rec)), -price)) %>% 
-  pull("object")
-
-dia_rec2 <-
-  recipe(price ~ ., data = dia_train) %>%
-  step_log(all_outcomes()) %>%
-  step_normalize(all_predictors(), -all_nominal()) %>%
-  step_dummy(all_nominal()) %>%
-  step_poly(carat, degree = tune())
-
-dia_rec2 %>% 
-  parameters() %>% 
-  pull("object")
-
-rf_wflow <-
-  workflow() %>%
-  add_model(rf_model) %>%
-  add_recipe(dia_rec2)
-rf_wflow
-
-rf_param <-
-  rf_wflow %>%
-  parameters() %>%
-  update(mtry = mtry(range = c(3L, 5L)),
-         degree = degree_int(range = c(2L, 4L)))
-rf_param$object
-
-rf_grid <- grid_regular(rf_param, levels = 3)
-rf_grid
-
-
-library("doFuture")
-all_cores <- parallel::detectCores(logical = FALSE) - 1
-
-registerDoFuture()
-cl <- makeCluster(all_cores)
-plan(future::cluster, workers = cl)
-
-rf_search <- tune_grid(rf_wflow, grid = rf_grid, resamples = dia_vfold,
-                       param_info = rf_param)
-
-autoplot(rf_search, metric = "rmse") +
-  labs(title = "Results of Grid Search for Two Tuning Parameters of a Random Forest")
-
-show_best(rf_search, "rmse", n = 9)
-select_best(rf_search, metric = "rmse")
-select_by_one_std_err(rf_search, mtry, degree, metric = "rmse")
-
-rf_param_final <- select_by_one_std_err(rf_search, mtry, degree,
-                                        metric = "rmse")
-
-rf_wflow_final <- finalize_workflow(rf_wflow, rf_param_final)
-
-rf_wflow_final_fit <- fit(rf_wflow_final, data = dia_train)
-
-dia_rec3     <- pull_workflow_prepped_recipe(rf_wflow_final_fit)
-rf_final_fit <- pull_workflow_fit(rf_wflow_final_fit)
-
-dia_test$.pred <- predict(rf_final_fit, 
-                          new_data = bake(dia_rec3, dia_test))$.pred
-dia_test$logprice <- log(dia_test$price)
-
-metrics(dia_test, truth = logprice, estimate = .pred)
-
-
-### trying out the tidymodels with my dataset ########################################
 set.seed(123)
 pd4_split <- initial_split(pd4, prop = 3/4)
-pd4_train <- training(pd4_split)
-pd4_test <- testing(pd4_split)
+pd4_train_data <- training(pd4_split)
+pd4_test_data <- testing(pd4_split)
 pd4_cv <- vfold_cv(pd4_train)
 
 names(pd4_train)
@@ -437,10 +334,18 @@ pd4_recipe <-
   #step_knnimpute(all_predictors())
   #step_unknown() #%>% 
 
-#str(pd4_train)
-pd4_train_preprocessed <- pd4_recipe %>% 
-  prep(pd4_train) %>% 
-  juice()
+#prepped <- pd4_recipe %>% prep(retain = TRUE)
+
+pd4_training <- pd4_recipe %>%
+  bake(training(pd4_split)) 
+
+pd4_testing <- pd4_recipe %>%
+  bake(testing(pd4_split)) 
+
+# #str(pd4_train)
+# pd4_train_preprocessed <- pd4_recipe %>% 
+#   prep(pd4_train) %>% 
+#   juice()
   
 rf_model <- 
   # specify that the model is a random forest
@@ -451,6 +356,16 @@ rf_model <-
   set_engine("ranger", importance = "impurity") %>%
   # choose either the continuous regression or binary classification mode
   set_mode("regression") 
+
+rf_model2 <- 
+  # specify that the model is a random forest
+  rand_forest() %>%
+  # select the engine/package that underlies the model
+  set_engine("ranger", importance = "impurity") %>%
+  # choose either the continuous regression or binary classification mode
+  set_mode("regression") 
+
+
 
 rf_workflow <- workflow() %>%
   # add the recipe
@@ -492,8 +407,12 @@ test_predictions
 final_model <- fit(rf_workflow, pd4)
 final_model
 
-ja_missing_data$ja <- NULL
-ja_missing_data_pred <- predict(final_model, pd4_train_preprocessed)
+ja_missing_data$ja <- NA
+ja_missing_data_prepped <- pd4_recipe %>% bake(new_data = ja_missing_data)
+ja_missing_data_pred <- predict(final_model, pd4_train_data)
+
+names(pd4_train)
+names(pd4)
 
 ?predict
 names(ja_missing_data)
@@ -508,30 +427,84 @@ pd4_testing <- pd4_recipe %>%
 predict(final_model, pd4_testing)
   
   
-iris_split <- initial_split(iris, prop = 0.6)
-iris_split
+
 
 #my data
-pd4_toy <- select(pd4, ja, doy, met_tmaxdegc)
-iris_split <- initial_split(pd4_toy, prop = 0.6)
+pd4_toy <- pd4 %>% #filter(NAB_station == "San Antonio A") %>% 
+  select_if(~sum(!is.na(.)) > 0)
+#summary(pd4_toy$met_swekgm2)
+#str(pd4_toy)
+iris_split <- initial_split(pd4_toy, prop = 0.7)
 iris_recipe <- training(iris_split) %>%
   recipe(ja ~.) %>%
-  #step_corr(all_predictors()) %>%
+  step_log(all_outcomes(), offset = 0.1) %>% 
+  step_nzv(all_predictors()) %>% 
+  step_meanimpute(all_numeric()) %>%
   step_naomit(all_predictors()) %>%
   step_center(all_numeric(), -all_outcomes()) %>%
   step_scale(all_numeric(), -all_outcomes()) %>%
+  step_dummy(all_nominal()) %>% 
   prep()
-iris_testing <- iris_recipe %>%
-  bake(testing(iris_split)) 
-iris_training <- juice(iris_recipe)
-iris_ranger <- rand_forest(trees = 100, mode = "regression") %>%
+
+iris_training <- iris_recipe %>% bake(training(iris_split))
+iris_testing  <- iris_recipe %>% bake(testing(iris_split)) 
+iris_testing_nab <- testing(iris_split)$NAB_station
+iris_ranger <- rand_forest(trees = 500, mode = "regression") %>%
   set_engine("ranger") %>%
   fit(ja ~ ., data = iris_training)
-predict(iris_ranger, iris_testing)
-iris_testing$ja[1] <- NA
+#iris_ranger <- boost_tree(mtry = 3, trees = 500, mode = "regression") %>% 
+# iris_ranger <- svm_poly(mode = "regression") %>% 
+#   fit(ja ~ ., data = iris_training)
+iris_ranger
+ranger_pred <- predict(iris_ranger, iris_testing, type = "numeric")
+
+library("quantregForest")
+iris_training2 <- select(iris_training, -ja)# %>% sample_n(500)
+iris_testing2 <- select(iris_testing, -ja) #%>% sample_n(333)
+
+iris_qrf <- quantregForest(x = iris_training2, y = iris_training$ja, keep.inbag = TRUE, ntree = 1000, mtry = 4)
+summary(iris_qrf)
+conditionalMean <- predict(iris_qrf, iris_testing2, what = mean) #breaks silently if you put in "new data = "!
+conditionalSD <- predict(iris_qrf, iris_testing2, what = sd)
+
+library(magrittr)
+iris_testing2 %>% mutate(NAB_station = iris_testing_nab,
+                        ja = iris_testing$ja,
+                        ja_hat_ranger = unlist(ranger_pred),
+                        ja_hat = conditionalMean,
+                        ja_hat_sd = conditionalSD) %>% 
+ggplot(aes(x = ja + 0.1, y = ja_hat_ranger + 0.1, color = NAB_station)) + 
+  geom_point() + geom_smooth(method = "lm") + geom_abline(slope = 1, intercept = 0) + theme_bw()
+   #+ scale_x_log10() + scale_y_log10()
+
+
+
+iris_testing2 %>% mutate(ja = iris_testing$ja,
+                         ja_hat = conditionalMean,
+                         ja_hat_ranger = unlist(ranger_pred),
+                         ja_hat_sd = conditionalSD) %>% 
+  ggplot(aes(x = ja + 0.1, y = ja_hat + 0.1, ymax = ja_hat + ja_hat_sd + 0.1 , ymin = ja_hat - ja_hat_sd + 0.1)) + 
+  ggplot(aes(x = ja_hat_ranger + 0.1, y = ja_hat + 0.1, ymax = ja_hat + ja_hat_sd + 0.1 , ymin = ja_hat - ja_hat_sd + 0.1)) + 
+  geom_point() + geom_smooth(method = "lm") + geom_abline(slope = 1, intercept = 0) + theme_bw()+
+  geom_linerange() + scale_x_log10() + scale_y_log10()
+
+
+ja_missing_data$ja <- NA
+ja_missing_data_baked <- iris_recipe %>% bake(new_data = ja_missing_data)
+ja_missing_data_pred <- predict(final_model, ja_missing_data_baked)
+
+
+str(ja_missing_data)
+ja_missing_data <- ja_missing_data %>% filter(NAB_station == unique(pd4_toy$NAB_station)) 
+ja_missing_data$ja <- as.numeric(ja_missing_data$ja)
+ja_missing_data_prepped <- iris_recipe %>% bake(ja_missing_data) 
+predict(iris_ranger, new_data = ja_missing_data_prepped)
+
 
 
 #original
+iris_split <- initial_split(iris, prop = 0.6)
+iris_split
 iris_recipe <- training(iris_split) %>%
   recipe(Species ~.) %>%
   step_corr(all_predictors()) %>%
@@ -546,3 +519,4 @@ iris_ranger <- rand_forest(trees = 100, mode = "classification") %>%
   fit(Species ~ ., data = iris_training)
 predict(iris_ranger, iris_testing)
 iris_testing$Species[1] <- NA
+iris_testing$Sepal.Length[1] <- NA
