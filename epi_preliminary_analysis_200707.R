@@ -26,7 +26,7 @@ rm(list = ls())
 ### load in NAB data from 2009-2019 ##################################################################
 NAB_locations <- read_csv("C:/Users/dsk856/Desktop/misc_data/EPHT_Pollen Station Inventory_062019_dk200331.csv")
 NAB <- read_csv("C:/Users/dsk856/Desktop/misc_data/NAB2009_2019_pollen_191230.csv", guess_max = 92013)
-NAB_modeled <- read_csv("C:/Users/dsk856/Desktop/misc_data/NAB_pollen_modeled200618.csv", guess_max = 92013)
+NAB_modeled <- read_csv("C:/Users/dsk856/Desktop/misc_data/NAB_pollen_modeled200618.csv", guess_max = 31912)
 # msa <- read.csv("C:/Users/dsk856/Desktop/misc_data/county_to_MSA_clean.csv", stringsAsFactors = FALSE)
 # msa$FIPS <- sprintf("%03s",msa$FIPS) %>% sub(" ", "0",.) %>% sub(" ", "0",.)
 
@@ -52,7 +52,8 @@ NAB_tx <- left_join(NAB, NAB_locations) %>%
   mutate(FIPS = sprintf("%03s",FIPS), #NAB_tx$FIPS
                          FIPS = sub(" ", "0",FIPS),
                          FIPS = sub(" ", "0",FIPS))
-NAB_tx <- full_join(NAB_tx, NAB_modeled)
+NAB_tx <- full_join(NAB_tx, NAB_modeled) %>% 
+  mutate(doy = yday(date))
 # head(NAB_tx)
 # head(NAB_modeled)
 #str(NAB_tx)
@@ -383,6 +384,7 @@ flu$date <- ymd(flu$date)
 
 ## combine the various datasets
 #head(opa_day)
+str(opa_day)
 opa_day <- opa %>% group_by(date, NAB_station) %>% #names(opa) opa$PAT_AGE_YEARS
   filter(between(PAT_AGE_YEARS, 5, 18)) %>%
   summarize(n_cases = n()) %>% 
@@ -396,7 +398,10 @@ opa_day <- left_join(opa_day, pop_near_NAB)
 opa_day <- mutate(opa_day, pbir = ((n_cases/children_pop) * 10000), #PIBR per 10,000 for children 
                   pbir_py = (pbir / ((children_pop))) * 100000)
 opa_day <- left_join(opa_day, NAB_tx)
-#opa_msa_day2 <- left_join(opa_msa_day, NAB_tx)
+# summary(NAB_tx$doy)
+# NAB_tx$doy
+# opa_day$date
+
 opa_day <- left_join(opa_day, flu)
 opa_day <- left_join(opa_day, virus) ##head(virus)
 opa_day <- left_join(opa_day, weather_at_stations)
@@ -428,8 +433,8 @@ opa_day <- opa_day %>% ungroup() %>% group_by(NAB_station) %>% arrange(NAB_stati
                                                                      "Saturday", "Sunday"))  %>%
                       filter(date > mdy('9-30-15')) 
 
-write_csv(opa_day, "C:/Users/dsk856/Desktop/thcic_analysis/opa_day200706.csv")
-opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day200706.csv")
+write_csv(opa_day, "C:/Users/dsk856/Desktop/thcic_analysis/opa_day200707.csv")
+opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day200707.csv", guess_max = 7434)
 
 ### assess temporal trends in ED visits for an unrelated cause (injury) ########################
 # block_groups_near_NAB_nostation <- unlist(block_groups_near_NAB$GEOID)
@@ -1378,50 +1383,107 @@ opa_day %>%
 
 #### analysis of a single station with a distributed lags model using dlm package #######################################
 library(dlnm)
+library(splines)
 
+#str(data_for_model)
 data_for_model <- opa_day %>%
-  filter(NAB_station == "Georgetown") %>% # == "Harris") %>% !is.na(county_name)) 
+  filter(NAB_station == "San Antonio A") %>% # == "Harris") %>% !is.na(county_name)) 
     mutate(NAB_station_n = as.numeric(as.factor(NAB_station)),
          v_tests_pos_Rhinoviruss = scale(v_tests_pos_Rhinovirus),
          v_tests_pos_RSVs = scale(v_tests_pos_RSV),
          v_tests_pos_Coronas = scale(v_tests_pos_Corona),
          flu_ds = scale(flu_d),
-         cups = scale(log10(cupr + 1)),
-         tot_pols = scale(log10(tot_pol - cupr + 1))) %>%
-    dplyr::select(date, n_cases, 
+         ja_l = log10(ja + 0.1),
+         ja_lm = case_when(is.na(ja_l) ~ ja_rfint_log_mean,
+                           !is.na(ja_l) ~ ja_l),
+         ja_lms = scale(ja_lm),
+         cup_other_l = log10(cup_other + 0.1),
+         cup_other_lm = case_when(is.na(cup_other_l) ~ cup_other_rfint_log_mean,
+                           !is.na(cup_other_l) ~ cup_other_l),
+         cup_other_lms = scale(cup_other_lm),
+         trees_l = log10(trees + 0.1),
+         trees_lm = case_when(is.na(trees_l) ~ trees_rfint_log_mean,
+                           !is.na(trees_l) ~ trees_l),
+         trees_lms = scale(trees_lm),
+         pol_other_l = log10(pol_other + 0.1),
+         pol_other_lm = case_when(is.na(pol_other_l) ~ pol_other_rfint_log_mean,
+                           !is.na(pol_other_l) ~ pol_other_l),
+         pol_other_lms = scale(pol_other_lm)) %>%
+    dplyr::select(NAB_station, date, n_cases, 
                 week_day,
-                tot_pol, 
-                cupr, 
+                ja_lms, 
+                cup_other_lms,
+                trees_lms, 
+                pol_other_lms, 
                 v_tests_pos_Rhinovirus,
                 v_tests_pos_RSV,
                 v_tests_pos_Corona,
-                flu_d, NAB_station,
-                v_tests_pos_Rhinoviruss, v_tests_pos_RSVs, v_tests_pos_Coronas, flu_ds, cups, tot_pols) %>%
-  arrange(date) %>%
-  filter(complete.cases(.)) 
+                flu_d, 
+                v_tests_pos_Rhinoviruss, v_tests_pos_RSVs, v_tests_pos_Coronas, flu_ds) %>%
+  arrange(NAB_station, date) %>%
+  filter(complete.cases(.)) %>% 
+  filter(NAB_station != "Waco A",
+         NAB_station != "Waco B",
+         NAB_station != "College Station") %>% 
+  mutate(time = row_number())
 
-cups_min <- min(data_for_model$cups)
-hist(data_for_model$cups)
-cups_lag <- crossbasis(data_for_model$cups, lag = 21, 
-                    #argvar = list(fun = "ns"), arglag = list())
-                    #argvar=list(fun = "thr", side = "d"))
-                    argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 5))
-tot_pols_lag <- crossbasis(data_for_model$tot_pols, lag = 21, 
-                       #argvar = list(fun = "ns"), arglag = list())
-                       #argvar=list(fun = "thr", side = "d"))
-                       argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 5))
+ja_min <- min(data_for_model$ja_lms)
+# hist(data_for_model$ja_lms)
+# 
+# #what curves do different numbers of knots provide?
+ggplot(data_for_model, aes(date, n_cases, col = trees_lms)) +
+  scale_color_viridis_c()+
+  geom_point(alpha = 0.9, size = 3) +
+  geom_smooth(method = lm, formula = y ~ splines::bs(x, 50), se = FALSE) + theme_bw() + facet_wrap(~NAB_station, scales = "free")
 
-summary(cups_lag)
-model1 <- glm(n_cases ~ cups_lag + tot_pols_lag + 
-                v_tests_pos_Rhinoviruss + v_tests_pos_RSVs + v_tests_pos_Coronas + flu_ds + week_day,
+# 
+# ggplot(data_for_model, aes(date, n_cases, col = v_tests_pos_Coronas)) +
+#   scale_color_viridis_c()+
+#   geom_point(alpha = 0.9, size = 3) +
+#   geom_smooth(method = lm, formula = y ~ splines::bs(x, 50), se = FALSE) + theme_bw() + facet_wrap(~NAB_station, scales = "free")
+# 
+
+
+
+# # #splines instead of a polynomial
+# varknots <- equalknots(data_for_model$ja_lms, fun="bs",df=6,degree=3)
+# lagknots <- logknots(c(0,lag_length), 3)
+# ja_lag <- crossbasis(data_for_model$ja_lms, lag= lag_length, argvar=list(fun="bs",  knots=varknots), arglag=list(knots=lagknots))
+                     #argvar = list(fun = "ns"), arglag = list())
+                     #argvar=list(fun = "thr", side = "d"))
+
+lag_length  <- 7
+poly_degree <- 3
+
+#polynomial distributed lag
+ja_lag <- crossbasis(data_for_model$ja_lms, lag = lag_length,
+                    argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = poly_degree))
+
+cup_other_lag <- crossbasis(data_for_model$cup_other_lms, lag = lag_length, 
+                       argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = poly_degree))
+trees_lag <- crossbasis(data_for_model$trees_lms, lag = lag_length, 
+                            argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = poly_degree))
+pol_other_lag <- crossbasis(data_for_model$pol_other_lms, lag = lag_length, 
+                            argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = poly_degree))
+
+model1 <- glm(n_cases ~ ja_lag + cup_other_lag + trees_lag + pol_other_lag + 
+                v_tests_pos_Rhinoviruss + v_tests_pos_RSVs + v_tests_pos_Coronas + flu_ds + 
+                week_day + 
+                bs(n_cases, 30),
                 family = quasipoisson, data = data_for_model)
 summary(model1)
 
-pred1.pm <- crosspred(cups_lag, 
-                      #tot_pols_lag,
-                      model1, at = 1, bylag = 0.2, cen = cups_min, cumul = TRUE)
+pred1.pm <- crosspred(
+  ja_lag, 
+  #cup_other_lag,
+  #trees_lag, 
+  #pol_other_lag,
+                      model1, at = 1, bylag = 0.2, cen = ja_min, #cumul = TRUE
+  )
 plot(pred1.pm, "slices", var=1, cumul = FALSE, 
      main="Association with a 1-unit increase in independent variable")
+
+
 
 
 #### analysis of a single station with a Bayesian distributed lags model #######################################
