@@ -420,7 +420,6 @@ rf_fit <- rf_workflow %>%
   # fit on the training set and evaluate on test set
   last_fit(pd4_split)
 rf_fit
- 
 test_performance <- rf_fit %>% collect_metrics()
 test_performance
 
