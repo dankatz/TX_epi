@@ -1,7 +1,7 @@
 #data assembly for preliminary epidemiological analysis
 #install.packages("noncensus")
-library(tidyr) #install.packages("tidyr") 
-library(dplyr) #install.packages("dplyr")
+library(tidyr) 
+library(dplyr)
 library(readr)
 library(stringr)
 library(lubridate)
@@ -24,9 +24,8 @@ rm(list = ls())
 
 
 ### load in NAB data from 2009-2019 ##################################################################
-NAB_locations <- read_csv("C:/Users/dsk856/Desktop/misc_data/EPHT_Pollen Station Inventory_062019_dk200331.csv")
-NAB <- read_csv("C:/Users/dsk856/Desktop/misc_data/NAB2009_2019_pollen_191230.csv", guess_max = 92013)
-NAB_modeled <- read_csv("C:/Users/dsk856/Desktop/misc_data/NAB_pollen_modeled200618.csv", guess_max = 92013)
+NAB_locations <- read.csv("C:/Users/dsk856/Desktop/misc_data/EPHT_Pollen Station Inventory_062019_dk200331.csv", stringsAsFactors = FALSE)
+NAB <- read.csv("C:/Users/dsk856/Desktop/misc_data/NAB2009_2019_pollen_191230.csv", stringsAsFactors = FALSE)
 # msa <- read.csv("C:/Users/dsk856/Desktop/misc_data/county_to_MSA_clean.csv", stringsAsFactors = FALSE)
 # msa$FIPS <- sprintf("%03s",msa$FIPS) %>% sub(" ", "0",.) %>% sub(" ", "0",.)
 
@@ -34,28 +33,15 @@ NAB_tx <- left_join(NAB, NAB_locations) %>%
   filter(State == "TX") %>%
   mutate(date = ymd(Date),
          doy = yday(date),
-         year = year(date),
-         mo = month(date) ,
-         ja = case_when( mo < 3  ~ Cupressaceae,
-                         mo > 11 ~ Cupressaceae,
-                         TRUE ~ 0) ,
-         cup_other = case_when(ja == 0 ~ Cupressaceae,
-                               ja > 0 ~ 0)) %>%  #, FIPS = as.character(FIPS
-  rowwise()%>%
-  mutate(trees = sum(Acer, Alnus, Betula, Carpinus.Ostrya, Corylus, Fraxinus, Juglans, Liquidambar, Other.Tree.Pollen,                    
-                     Populus, Pseudotsuga, Quercus, Salix, Arecaceae, Carya, Cyperaceae, Fagus, Ligustrum,
-                     Morus, Olea, Platanus, Tilia, Celtis, Prosopis, Myrica, Ulmus, Tsuga, na.rm = TRUE), #not including Pinaceae
-         pol_other = Total.Pollen.Count - ja - cup_other - trees)%>%  
+         year = year(date)) %>%  #, FIPS = as.character(FIPS
   dplyr::select(date, doy, year, City, FIPS, county_name, MSA, Lat, Long, NABStation_ID, file, 
-                ja, cup_other, trees, pol_other,  #Total.Pollen.Count, Cupressaceae,grass = Gramineae...Poaceae,Ambrosia, Quercus, Ulmus, Acer, Platanus,    
-                NAB_station) %>%
+                Total.Pollen.Count, Cupressaceae, 
+                grass = Gramineae...Poaceae, 
+                Ambrosia, Quercus, Ulmus, Acer, Platanus, NAB_station) %>%
   mutate(FIPS = sprintf("%03s",FIPS), #NAB_tx$FIPS
                          FIPS = sub(" ", "0",FIPS),
                          FIPS = sub(" ", "0",FIPS))
-NAB_tx <- full_join(NAB_tx, NAB_modeled)
-# head(NAB_tx)
-# head(NAB_modeled)
-#str(NAB_tx)
+#head(NAB_tx)
 #NAB_tx$PAT_COUNTY <- sprintf("%03s",NAB_tx$FIPS) %>% sub(" ", "0",.) %>% sub(" ", "0",.)
 #NAB_tx <- left_join(NAB_tx, msa)
 # filter(NAB_tx, date > ymd("2015-11-1") & date < ymd("2018-01-01")) %>% #summarise(n = n())
@@ -410,26 +396,68 @@ opa_day$holiday[is.na(opa_day$holiday)] <- 0
 #adding in some lags and leads
 #names(opa_day)# head(opa_day) unique(opa_day$PAT_COUNTY)
 #lag in pollen for last: 1 day
-names(opa_day)
-
-
 opa_day <- opa_day %>% ungroup() %>% group_by(NAB_station) %>% arrange(NAB_station, date) %>%
-                               mutate(
-                              # cupr = Cupressaceae,
-                              # cupr_l1 = lag(Cupressaceae, n = 1),
-                              # cupr_m7 = rollapply(Cupressaceae, 7, align='right', fill=NA,  function(x) mean(x, na.rm = TRUE)),
-                              # tot_pol = Total.Pollen.Count,
-                              # tot_pol_l1 = lag(Total.Pollen.Count,n = 1),
-                              # tot_pol_m7 = rollapply(Total.Pollen.Count,7,align='right',fill=NA,  function(x) mean(x, na.rm = TRUE)),
-                              # flu_d_m7 = rollapply(flu_d, 7, align='right',fill=NA,  function(x) mean(x, na.rm = TRUE)),
-                              # flu_d_m14 = rollapply(flu_d, 14, align='right',fill=NA,  function(x) mean(x, na.rm = TRUE)),
+                              mutate(cupr = Cupressaceae,
+                              cupr_l1 = lag(Cupressaceae, n = 1),
+                              cupr_l2 = lag(Cupressaceae, n = 2),
+                              cupr_l3 = lag(Cupressaceae, n = 3),
+                              cupr_l4 = lag(Cupressaceae, n = 4),
+                              cupr_l5 = lag(Cupressaceae, n = 5),
+                              cupr_l6 = lag(Cupressaceae, n = 6),
+                              cupr_l7 = lag(Cupressaceae, n = 7),
+                              cupr_l8 = lag(Cupressaceae, n = 8),
+                              cupr_l9 = lag(Cupressaceae, n = 9),
+                              cupr_l10= lag(Cupressaceae, n =10),
+                              cupr_l11= lag(Cupressaceae, n =11),
+                              cupr_l12= lag(Cupressaceae, n =12),
+                              cupr_l13= lag(Cupressaceae, n =13),
+                              cupr_l14= lag(Cupressaceae, n =14),
+                              cupr_l15= lag(Cupressaceae, n =15),
+                              cupr_l16= lag(Cupressaceae, n =16),
+                              cupr_l17= lag(Cupressaceae, n =17),
+                              cupr_l18= lag(Cupressaceae, n =18),
+                              cupr_l19= lag(Cupressaceae, n =19),
+                              cupr_l20= lag(Cupressaceae, n =20),
+                              cupr_l21= lag(Cupressaceae, n =21),
+                              cupr_m7 = rollapply(Cupressaceae, 7, align='right', fill=NA,  function(x) mean(x, na.rm = TRUE)),
+                              cupr_m14 = rollapply(Cupressaceae, 14, align='right', fill=NA,  function(x) mean(x, na.rm = TRUE)),
+                              cupr_m21 = rollapply(Cupressaceae, 21, align='right', fill=NA,  function(x) mean(x, na.rm = TRUE)),
+                              cupr_m28 = rollapply(Cupressaceae, 28, align='right', fill=NA,  function(x) mean(x, na.rm = TRUE)),
+                              cupr_m35 = rollapply(Cupressaceae, 35, align='right', fill=NA,  function(x) mean(x, na.rm = TRUE)),
+                              tot_pol = Total.Pollen.Count,
+                              tot_pol_l1 = lag(Total.Pollen.Count,n = 1),
+                              tot_pol_l2 = lag(Total.Pollen.Count,n = 2),
+                              tot_pol_l3 = lag(Total.Pollen.Count,n = 3),
+                              tot_pol_l4 = lag(Total.Pollen.Count,n = 4),
+                              tot_pol_l5 = lag(Total.Pollen.Count,n = 5),
+                              tot_pol_l6 = lag(Total.Pollen.Count,n = 6),
+                              tot_pol_l7 = lag(Total.Pollen.Count,n = 7),
+                              tot_pol_l8 = lag(Total.Pollen.Count,n = 8),
+                              tot_pol_l9 = lag(Total.Pollen.Count,n = 9),
+                              tot_pol_l10= lag(Total.Pollen.Count,n =10),
+                              tot_pol_l11= lag(Total.Pollen.Count,n =11),
+                              tot_pol_l12= lag(Total.Pollen.Count,n =12),
+                              tot_pol_l13= lag(Total.Pollen.Count,n =13),
+                              tot_pol_l14= lag(Total.Pollen.Count,n =14),
+                              tot_pol_l15= lag(Total.Pollen.Count,n =15),
+                              tot_pol_l16= lag(Total.Pollen.Count,n =16),
+                              tot_pol_l17= lag(Total.Pollen.Count,n =17),
+                              tot_pol_l18= lag(Total.Pollen.Count,n =18),
+                              tot_pol_l19= lag(Total.Pollen.Count,n =19),
+                              tot_pol_l20= lag(Total.Pollen.Count,n =20),
+                              tot_pol_l21= lag(Total.Pollen.Count,n =21),
+                              tot_pol_m7 = rollapply(Total.Pollen.Count,7,align='right',fill=NA,  function(x) mean(x, na.rm = TRUE)),
+                              tot_pol_m14 = rollapply(Total.Pollen.Count,14,align='right',fill=NA,  function(x) mean(x, na.rm = TRUE)),
+                              tot_pol_m21 = rollapply(Total.Pollen.Count,21,align='right',fill=NA,  function(x) mean(x, na.rm = TRUE)),
+                              flu_d_m7 = rollapply(flu_d, 7, align='right',fill=NA,  function(x) mean(x, na.rm = TRUE)),
+                              flu_d_m14 = rollapply(flu_d, 14, align='right',fill=NA,  function(x) mean(x, na.rm = TRUE)),
                               week_day = weekdays(date),
                               week_day = forcats::fct_relevel(week_day, "Monday", "Tuesday", "Wednesday", "Thursday", "Friday",
                                                                      "Saturday", "Sunday"))  %>%
-                      filter(date > mdy('9-30-15')) 
+                      filter(date > mdy('9-30-15'))
 
-write_csv(opa_day, "C:/Users/dsk856/Desktop/thcic_analysis/opa_day200706.csv")
-opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day200706.csv")
+write_csv(opa_day, "C:/Users/dsk856/Desktop/thcic_analysis/opa_day200601.csv")
+opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day200601.csv")
 
 ### assess temporal trends in ED visits for an unrelated cause (injury) ########################
 # block_groups_near_NAB_nostation <- unlist(block_groups_near_NAB$GEOID)
