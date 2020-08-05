@@ -468,17 +468,47 @@ opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day200707.csv", 
 
 #comparing pollen to ED visits for asthma over time
 names(opa_day)
-opa_day %>%
+panel_a <- opa_day %>%
 filter(date > ymd("2015 - 11 - 01")) %>%
 filter(NAB_station == "San Antonio A") %>%
-  ggplot(aes(x = date, y = n_cases, color = log10(cupr_m7 + 1))) + theme_few() +  facet_wrap(~NAB_station, scale = "free_y") + #scale_x_log10() + 
-  geom_point()  +  ylab("number of asthma ED visits") + # ylab("PBIR (asthma ED visits per 10,000 residents)") + #+ geom_smooth(method = "lm", se = FALSE, color = "gray")
-  xlab("") + scale_color_viridis_c(name = "pollen grains per m3") +
+  ggplot(aes(x = date, y = n_cases)) + theme_few() +  
+  geom_point(alpha = 0.2)  +  ylab("number of asthma ED visits") + # ylab("PBIR (asthma ED visits per 10,000 residents)") + #+ geom_smooth(method = "lm", se = FALSE, color = "gray")
+  xlab("") + #scale_color_viridis_c(name = "pollen grains per m3") +
   geom_line(aes(x = date, y=rollmean(n_cases, 7, na.pad=TRUE)), color = "black")
+panel_b <- opa_day %>% 
+  filter(date > ymd("2015 - 11 - 01")) %>%
+  filter(NAB_station == "San Antonio A") %>%
+  ggplot(aes(x = date, y = log(ja + 1))) + theme_few() +  #scale_x_log10() + 
+  geom_point(alpha = 0.2)  +  ylab("log(pollen grains/m3)") + # ylab("PBIR (asthma ED visits per 10,000 residents)") + #+ geom_smooth(method = "lm", se = FALSE, color = "gray")
+  xlab("") + #scale_color_viridis_c(name = "pollen grains per m3") +
+  geom_line(aes(x = date, y=rollmean(log(ja + 1), 7, na.pad=TRUE)), color = "black")
+panel_c <- opa_day %>% 
+  filter(date > ymd("2015 - 11 - 01")) %>%
+  filter(NAB_station == "San Antonio A") %>%
+  ggplot(aes(x = date, y = log(cup_other_rfint_log_mean + 1))) + theme_few() +  #scale_x_log10() + 
+  geom_point(alpha = 0.2)  +  ylab("log(pollen grains/m3)") + # ylab("PBIR (asthma ED visits per 10,000 residents)") + #+ geom_smooth(method = "lm", se = FALSE, color = "gray")
+  xlab("") + #scale_color_viridis_c(name = "pollen grains per m3") +
+  geom_line(aes(x = date, y=rollmean(log(cup_other_rfint_log_mean + 1), 7, na.pad=TRUE)), color = "black")
+panel_d <- opa_day %>% 
+  filter(date > ymd("2015 - 11 - 01")) %>%
+  filter(NAB_station == "San Antonio A") %>%
+  ggplot(aes(x = date, y = log(trees + 1))) + theme_few() +  #scale_x_log10() + 
+  geom_point(alpha = 0.2)  +  ylab("log(pollen grains/m3)") + # ylab("PBIR (asthma ED visits per 10,000 residents)") + #+ geom_smooth(method = "lm", se = FALSE, color = "gray")
+  xlab("") + #scale_color_viridis_c(name = "pollen grains per m3") +
+  geom_line(aes(x = date, y=rollmean(log(trees + 1), 7, na.pad=TRUE)), color = "black")
+panel_e <- opa_day %>% 
+  filter(date > ymd("2015 - 11 - 01")) %>%
+  filter(NAB_station == "San Antonio A") %>%
+  ggplot(aes(x = date, y = log(pol_other + 1))) + theme_few() +  #scale_x_log10() + 
+  geom_point(alpha = 0.2)  +  ylab("log(pollen grains/m3)") + # ylab("PBIR (asthma ED visits per 10,000 residents)") + #+ geom_smooth(method = "lm", se = FALSE, color = "gray")
+  xlab("") + #scale_color_viridis_c(name = "pollen grains per m3") +
+  geom_line(aes(x = date, y=rollmean(log(pol_other + 1), 7, na.pad=TRUE)), color = "black")
 
+cowplot::plot_grid(panel_a, panel_b, panel_c, panel_d, panel_e, nrow = 5, 
+                   labels = c("ED visits", "J. ashei", "other Cupressaceae", "trees", "other pollen"))
 
   
-  opa_day %>%
+  -opa_day %>%
     filter(date > ymd("2015 - 11 - 01")) %>%
     filter(NAB_station == "Houston" | NAB_station == "Dallas" | NAB_station == "San Antonio A") %>%
     ggplot(aes(x = date, y = n_cases, color = v_tests_pos_RSV )) + theme_few() +  facet_wrap(~NAB_station, scale = "free_y", ncol = 1) + #scale_x_log10() + 
@@ -1387,34 +1417,47 @@ library(splines)
 
 #str(data_for_model)
 data_for_model <- opa_day %>%
-  filter(NAB_station == "San Antonio A") %>% # == "Harris") %>% !is.na(county_name)) 
-    mutate(NAB_station_n = as.numeric(as.factor(NAB_station)),
+  filter(date > ymd("2015 - 11 - 01")) %>% # & date < ymd("2016 - 05 - 01")) %>%
+  #filter(NAB_station == "San Antonio A") %>% #unique(opa_day$NAB_station)
+    mutate(
+         n_cases_s = scale(n_cases),
+         log_child_pop = log(children_pop),
+         child_pop = children_pop,
+         NAB_station_n = as.numeric(as.factor(NAB_station)),
          v_tests_pos_Rhinoviruss = scale(v_tests_pos_Rhinovirus),
          v_tests_pos_RSVs = scale(v_tests_pos_RSV),
          v_tests_pos_Coronas = scale(v_tests_pos_Corona),
          flu_ds = scale(flu_d),
-         ja_l = log10(ja + 0.1),
+         ja_l = log10(ja + 0.9),
          ja_lm = case_when(is.na(ja_l) ~ ja_rfint_log_mean,
                            !is.na(ja_l) ~ ja_l),
          ja_lms = scale(ja_lm),
-         cup_other_l = log10(cup_other + 0.1),
+         cup_other_l = log10(cup_other + 0.9),
          cup_other_lm = case_when(is.na(cup_other_l) ~ cup_other_rfint_log_mean,
                            !is.na(cup_other_l) ~ cup_other_l),
          cup_other_lms = scale(cup_other_lm),
-         trees_l = log10(trees + 0.1),
+         cup_all_l = log10(ja + cup_other + 0.9),
+         #cup_all_lm = ja_lm + cup_other_lm,
+         cup_all_ls = scale(cup_all_l),
+         pol_tot_ls = scale(log10(ja + cup_other + trees + pol_other + 0.9)),
+         trees_l = log10(trees + 0.9),
          trees_lm = case_when(is.na(trees_l) ~ trees_rfint_log_mean,
                            !is.na(trees_l) ~ trees_l),
          trees_lms = scale(trees_lm),
-         pol_other_l = log10(pol_other + 0.1),
+         not_cup_ls = scale(log10(pol_other + trees + 0.9)),
+         cup_ls = scale(log10(ja + cup_other + 0.9)),
+         pol_other_l = log10(pol_other + 0.9),
          pol_other_lm = case_when(is.na(pol_other_l) ~ pol_other_rfint_log_mean,
                            !is.na(pol_other_l) ~ pol_other_l),
          pol_other_lms = scale(pol_other_lm)) %>%
-    dplyr::select(NAB_station, date, n_cases, 
+    dplyr::select(NAB_station, date, n_cases, n_cases_s, pbir, child_pop, log_child_pop,
                 week_day,
-                ja_lms, 
-                cup_other_lms,
-                trees_lms, 
-                pol_other_lms, 
+                ja_lms, ja_lm, 
+                cup_other_lms, cup_other_lm,
+                cup_all_l, cup_all_ls,
+                trees_lms, trees_lm,
+                pol_other_lms, pol_other_lm,
+                not_cup_ls, cup_ls, pol_tot_ls,
                 v_tests_pos_Rhinovirus,
                 v_tests_pos_RSV,
                 v_tests_pos_Corona,
@@ -1425,16 +1468,113 @@ data_for_model <- opa_day %>%
   filter(NAB_station != "Waco A",
          NAB_station != "Waco B",
          NAB_station != "College Station") %>% 
+  group_by(NAB_station) %>% 
   mutate(time = row_number())
 
 ja_min <- min(data_for_model$ja_lms)
 # hist(data_for_model$ja_lms)
 # 
+
+lag_length  <- 21
+poly_degree <- 5
+
+#polynomial distributed lag
+cup_all_lag <- crossbasis(data_for_model$ja_lm, lag = lag_length,
+                    argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = poly_degree))
+
+# cup_other_lag <- crossbasis(data_for_model$cup_other_lms, lag = lag_length, 
+#                        argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = poly_degree))
+trees_lag <- crossbasis(data_for_model$trees_lm, lag = lag_length, 
+                            argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = poly_degree))
+pol_other_lag <- crossbasis(data_for_model$pol_other_lm, lag = lag_length, 
+                            argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = poly_degree))
+
+model1 <- glm(n_cases ~ NAB_station + 
+                offset(log(child_pop)) + 
+                cup_all_lag +  trees_lag + pol_other_lag + 
+                v_tests_pos_Rhinoviruss + v_tests_pos_RSVs + v_tests_pos_Coronas + flu_ds + 
+                week_day + 
+                ns(time, 7),
+                family = quasipoisson, data = data_for_model)
+summary(model1)
+
+
+#cup all
+pred1.pm <- crosspred(cup_all_lag,  model1, at = 1, bylag = 0.2, cen = 0, cumul = TRUE)
+plot(pred1.pm, "slices", var=1,  main="Association with a 10x increase in independent variable")
+plot(pred1.pm, "slices", var=1, cumul = TRUE,  main="Association with a 10x increase in independent variable")
+
+#trees
+pred1.pm <- crosspred(trees_lag,  model1, at = 1, bylag = 0.2, cen = 0, cumul = TRUE)
+plot(pred1.pm, "slices", var=1,  main="Association with a 10x increase in independent variable")
+plot(pred1.pm, "slices", var=1, cumul = TRUE,  main="Association with a 10x increase in independent variable")
+
+#pol_other
+pred1.pm <- crosspred(pol_other_lag,  model1, at = 1, bylag = 0.2, cen = 0, cumul = TRUE)
+plot(pred1.pm, "slices", var=1,  main="Association with a 10x increase in independent variable")
+plot(pred1.pm, "slices", var=1, cumul = TRUE,  main="Association with a 10x increase in independent variable")
+
+
+data_for_model %>% 
+  ungroup() %>% 
+  mutate(resid = c(rep(NA, lag_length), model1$residuals)) %>% 
+  ggplot(aes(x = date, y = resid)) +
+  geom_point() + facet_wrap(~NAB_station)
+
+
+##
 # #what curves do different numbers of knots provide?
-ggplot(data_for_model, aes(date, n_cases, col = trees_lms)) +
+ggplot(data_for_model, aes(date, pbir, col = cup_all_ls)) +
   scale_color_viridis_c()+
   geom_point(alpha = 0.9, size = 3) +
-  geom_smooth(method = lm, formula = y ~ splines::bs(x, 50), se = FALSE) + theme_bw() + facet_wrap(~NAB_station, scales = "free")
+  geom_smooth(method = lm, formula = y ~ splines::ns(x, 10), se = FALSE, lwd = 2) + 
+  #geom_line(aes(x = date, y=rollmean(cup_all_ls, 7, na.pad=TRUE)), color = "black") +
+  theme_bw() + facet_wrap(~NAB_station, scales = "free")
+
+data_for_model %>% 
+  filter(date > ymd("2015 - 12 - 01") & date < ymd("2016 - 02 - 01")) %>%
+  ggplot(aes(date, n_cases_s)) +
+  scale_color_viridis_c()+
+  geom_line(aes(x = date, y=rollmean(n_cases_s, 1, na.pad=TRUE)), color = "red") +
+  geom_line(aes(x = date, y=rollmean(cup_all_ls, 1, na.pad=TRUE)), color = "black") +
+  # geom_line(aes(x = date, y=rollmean(not_cup_ls, 7, na.pad=TRUE)), color = "blue") +
+  theme_bw() + facet_wrap(~NAB_station, scales = "free") +
+  ylab("standardized variable")
+
+ccf_df <- data_for_model %>% filter(NAB_station == "San Antonio A") %>% 
+  mutate(n_cases_s_ts = ts(n_cases_s),
+         cup_all_ls_ts = ts(cup_all_ls))
+
+ccf(ccf_df$n_cases_s_ts, ccf_df$cup_all_ls_ts, lag.max = 30)
+?ccf
+
+panel_a <- data_for_model %>%
+  ggplot(aes(x = date, y = n_cases, color = n_cases)) + theme_few() +  
+  geom_point(alpha = 0.8)  +  ylab("number of asthma ED visits") + # ylab("PBIR (asthma ED visits per 10,000 residents)") + #+ geom_smooth(method = "lm", se = FALSE, color = "gray")
+  xlab("") + scale_color_viridis_c(name = "n cases") +
+  geom_line(aes(x = date, y=rollmean(n_cases, 7, na.pad=TRUE)), color = "black")
+panel_b <- data_for_model %>% 
+  ggplot(aes(x = date, y = cup_all_l, color = n_cases)) + theme_few() +  #scale_x_log10() + 
+  geom_point(alpha = 0.8, size = 2)  +  ylab("log(pollen grains/m3)") + # ylab("PBIR (asthma ED visits per 10,000 residents)") + #+ geom_smooth(method = "lm", se = FALSE, color = "gray")
+  xlab("") + scale_color_viridis_c(name = "n cases") +
+  geom_line(aes(x = date, y=rollmean(cup_all_l, 7, na.pad=TRUE)), color = "black")
+panel_d <- data_for_model %>% 
+  ggplot(aes(x = date, y = trees_lm, color = n_cases)) + theme_few() +  #scale_x_log10() + 
+  geom_point(alpha = 0.8, size = 2)  +  ylab("log(pollen grains/m3)") + # ylab("PBIR (asthma ED visits per 10,000 residents)") + #+ geom_smooth(method = "lm", se = FALSE, color = "gray")
+  xlab("") + scale_color_viridis_c(name = "n cases") +
+  geom_line(aes(x = date, y=rollmean(trees_lm, 7, na.pad=TRUE)), color = "black")
+panel_e <- data_for_model %>% 
+  ggplot(aes(x = date, y = pol_other_lm, color = n_cases)) + theme_few() +  #scale_x_log10() + 
+  geom_point(alpha = 0.8, size = 2)  +  ylab("log(pollen grains/m3)") + # ylab("PBIR (asthma ED visits per 10,000 residents)") + #+ geom_smooth(method = "lm", se = FALSE, color = "gray")
+  xlab("") + scale_color_viridis_c(name = "n cases") +
+  geom_line(aes(x = date, y=rollmean(pol_other_lm, 7, na.pad=TRUE)), color = "black")
+
+cowplot::plot_grid(panel_a, panel_b, #panel_c, 
+                   panel_d, nrow = 3,
+                   
+                   labels = c("ED visits", "all Cupressaceae", "trees"))#, "other pollen"))
+
+
 
 # 
 # ggplot(data_for_model, aes(date, n_cases, col = v_tests_pos_Coronas)) +
@@ -1449,41 +1589,8 @@ ggplot(data_for_model, aes(date, n_cases, col = trees_lms)) +
 # varknots <- equalknots(data_for_model$ja_lms, fun="bs",df=6,degree=3)
 # lagknots <- logknots(c(0,lag_length), 3)
 # ja_lag <- crossbasis(data_for_model$ja_lms, lag= lag_length, argvar=list(fun="bs",  knots=varknots), arglag=list(knots=lagknots))
-                     #argvar = list(fun = "ns"), arglag = list())
-                     #argvar=list(fun = "thr", side = "d"))
-
-lag_length  <- 7
-poly_degree <- 3
-
-#polynomial distributed lag
-ja_lag <- crossbasis(data_for_model$ja_lms, lag = lag_length,
-                    argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = poly_degree))
-
-cup_other_lag <- crossbasis(data_for_model$cup_other_lms, lag = lag_length, 
-                       argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = poly_degree))
-trees_lag <- crossbasis(data_for_model$trees_lms, lag = lag_length, 
-                            argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = poly_degree))
-pol_other_lag <- crossbasis(data_for_model$pol_other_lms, lag = lag_length, 
-                            argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = poly_degree))
-
-model1 <- glm(n_cases ~ ja_lag + cup_other_lag + trees_lag + pol_other_lag + 
-                v_tests_pos_Rhinoviruss + v_tests_pos_RSVs + v_tests_pos_Coronas + flu_ds + 
-                week_day + 
-                bs(n_cases, 30),
-                family = quasipoisson, data = data_for_model)
-summary(model1)
-
-pred1.pm <- crosspred(
-  ja_lag, 
-  #cup_other_lag,
-  #trees_lag, 
-  #pol_other_lag,
-                      model1, at = 1, bylag = 0.2, cen = ja_min, #cumul = TRUE
-  )
-plot(pred1.pm, "slices", var=1, cumul = FALSE, 
-     main="Association with a 1-unit increase in independent variable")
-
-
+#argvar = list(fun = "ns"), arglag = list())
+#argvar=list(fun = "thr", side = "d"))
 
 
 #### analysis of a single station with a Bayesian distributed lags model #######################################
