@@ -466,6 +466,71 @@ opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day200707.csv", 
 
 ### exploring data ###################################################
 
+
+### fig 2: time series of each var ############################################################
+
+names(opa_day)
+
+#time series for major pollen types
+panel_pol <-  opa_day %>% 
+  mutate(Cupressaceae = ja + cup_other,
+         other = pol_other) %>% 
+  select(NAB_station, date, Cupressaceae, trees, other) %>% 
+  pivot_longer(cols = c(Cupressaceae, trees, other), names_to = "pollen_type", values_to = "pollen") %>% 
+  arrange(NAB_station, pollen_type, date) %>% 
+  filter(!is.na(pollen)) %>% 
+  #filter(NAB_station == "San Antonio A" | NAB_station == "San Antonio B") %>% 
+  # filter(date > mdy ("11 - 1- 2017") ) %>% 
+  ggplot(aes(x = date, y = pollen + 1, col = NAB_station, group = NAB_station)) + theme_few() + scale_y_log10() + 
+    geom_line(aes(x = date, y=rollmean((pollen + 1), 7, na.pad=TRUE), col = NAB_station, group = NAB_station)) + 
+  facet_wrap(~pollen_type, nrow = 4) + ylab(pollen~(grains/m^3)) + scale_color_discrete(name = "NAB station") +
+    theme(legend.position= "none" )
+
+#time series for viruses
+panel_vir <-
+  opa_day %>% 
+    select(NAB_station, date, v_tests_pos_Corona, v_tests_pos_Rhinovirus, v_tests_pos_RSV) %>% 
+    pivot_longer(cols = c(v_tests_pos_Corona, v_tests_pos_Rhinovirus, v_tests_pos_RSV), 
+                 names_to = "virus_type", values_to = "positive_tests") %>% 
+    arrange(NAB_station, virus_type, date) %>% 
+    #filter(!is.na(pollen)) %>% 
+    #filter(NAB_station == "San Antonio A" | NAB_station == "San Antonio B") %>% 
+    # filter(date > mdy ("11 - 1- 2017") ) %>% 
+    ggplot(aes(x = date, y = positive_tests, color = virus_type)) + theme_few() + 
+    geom_line() + #geom_point() + 
+    ylab("positive tests (n)") +
+    scale_color_discrete(breaks = c("v_tests_pos_Corona", "v_tests_pos_Rhinovirus","v_tests_pos_RSV"),
+                       labels = c("Seasonal coronavirus", "Rhinovirus","RSV"), name = "virus type") +
+    theme(strip.text.x = element_blank(),
+          strip.background = element_rect(colour="white", fill="white"),
+          legend.position= "top")
+  
+#time series for ED visits
+panel_ed <- 
+  opa_day %>% 
+    #select(NAB_station, date, v_tests_pos_Corona, v_tests_pos_Rhinovirus, v_tests_pos_RSV) %>% 
+    # pivot_longer(cols = c(v_tests_pos_Corona, v_tests_pos_Rhinovirus, v_tests_pos_RSV), 
+    #              names_to = "virus_type", values_to = "positive_tests") %>% 
+    # arrange(NAB_station, virus_type, date) %>% 
+    # #filter(!is.na(pollen)) %>% 
+    #filter(NAB_station == "San Antonio A" | NAB_station == "San Antonio B") %>% 
+    # filter(date > mdy ("11 - 1- 2017") ) %>% 
+    ggplot(aes(x = date, y = pbir, color = NAB_station)) + theme_few() + 
+    geom_line(aes(x = date, y=rollmean((pbir + 1), 7, na.pad=TRUE), col = NAB_station, group = NAB_station)) + 
+    #geom_line() + #geom_point() + 
+    ylab("Asthma ED visits (per 10,000 residents)") +
+  
+    theme(strip.text.x = element_blank(),
+          strip.background = element_rect(colour="white", fill="white"),
+          legend.position= "none")
+  
+#putting together the time series into one plot  
+ts_panels <- cowplot::plot_grid(panel_ed, panel_pol, panel_vir, align = "v", ncol = 1, rel_heights = c(1,3,1))
+ggsave(file = "C:/Users/dsk856/Desktop/thcic_analysis/time_series_fig_poster200806.jpg", plot = ts_panels, 
+       height =20, width = 17, units = "cm", dpi = 300)  
+?ggsave
+
+
 #comparing pollen to ED visits for asthma over time
 names(opa_day)
 panel_a <- opa_day %>%
@@ -1430,7 +1495,7 @@ data_for_model <- opa_day %>%
          flu_ds = scale(flu_d),
          ja_l = log10(ja + 0.9),
          ja_lm = case_when(is.na(ja_l) ~ ja_rfint_log_mean,
-                           !is.na(ja_l) ~ ja_l),
+                           !is.na(ja_l) ~ ja_l), #hist(data_for_model$ja_lm)
          ja_lms = scale(ja_lm),
          cup_other_l = log10(cup_other + 0.9),
          cup_other_lm = case_when(is.na(cup_other_l) ~ cup_other_rfint_log_mean,
@@ -1479,55 +1544,73 @@ lag_length  <- 21
 poly_degree <- 5
 
 #polynomial distributed lag
-cup_all_lag <- crossbasis(data_for_model$ja_lm, lag = lag_length,
-                    argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = poly_degree))
-
-# cup_other_lag <- crossbasis(data_for_model$cup_other_lms, lag = lag_length, 
-#                        argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = poly_degree))
-trees_lag <- crossbasis(data_for_model$trees_lm, lag = lag_length, 
-                            argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = poly_degree))
-pol_other_lag <- crossbasis(data_for_model$pol_other_lm, lag = lag_length, 
-                            argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = poly_degree))
+cup_all_lag <- crossbasis(data_for_model$ja_lm, lag = 21,
+                    argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 3))
+trees_lag <- crossbasis(data_for_model$trees_lm, lag = 21, 
+                            argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 4))
+pol_other_lag <- crossbasis(data_for_model$pol_other_lm, lag = 10, 
+                            argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 3))
 
 model1 <- glm(n_cases ~ NAB_station + 
                 offset(log(child_pop)) + 
                 cup_all_lag +  trees_lag + pol_other_lag + 
                 v_tests_pos_Rhinoviruss + v_tests_pos_RSVs + v_tests_pos_Coronas + flu_ds + 
                 week_day + 
-                ns(time, 7),
+                ns(time, 30),
                 family = quasipoisson, data = data_for_model)
 summary(model1)
 
 
-#cup all
-pred1.pm <- crosspred(cup_all_lag,  model1, at = 1, bylag = 0.2, cen = 0, cumul = TRUE)
-plot(pred1.pm, "slices", var=1,  main="Association with a 10x increase in independent variable")
-plot(pred1.pm, "slices", var=1, cumul = TRUE,  main="Association with a 10x increase in independent variable")
+#cup all hist(data_for_model$ja_lm)
+pred1.pm <- crosspred(cup_all_lag,  model1, at = 1:4, bylag = 0.2, cen = 0, cumul = TRUE)
+plot(pred1.pm, "slices", var=1,  main="Association with a 10x increase in independent variable", ylab = "RR")
+plot(pred1.pm, "slices", var=1, cumul = TRUE,  main="Association with a 10x increase in independent variable", ylab = "cumulative RR")
 
 #trees
 pred1.pm <- crosspred(trees_lag,  model1, at = 1, bylag = 0.2, cen = 0, cumul = TRUE)
-plot(pred1.pm, "slices", var=1,  main="Association with a 10x increase in independent variable")
-plot(pred1.pm, "slices", var=1, cumul = TRUE,  main="Association with a 10x increase in independent variable")
+plot(pred1.pm, "slices", var=1,  main="Association with a 10x increase in independent variable", ylab = "RR")
+plot(pred1.pm, "slices", var=1, cumul = TRUE,  main="Association with a 10x increase in independent variable", ylab = "cumulative RR")
 
 #pol_other
 pred1.pm <- crosspred(pol_other_lag,  model1, at = 1, bylag = 0.2, cen = 0, cumul = TRUE)
-plot(pred1.pm, "slices", var=1,  main="Association with a 10x increase in independent variable")
-plot(pred1.pm, "slices", var=1, cumul = TRUE,  main="Association with a 10x increase in independent variable")
+plot(pred1.pm, "slices", var=1,  main="Association with a 10x increase in independent variable", ylab = "RR")
+plot(pred1.pm, "slices", var=1, cumul = TRUE,  main="Association with a 10x increase in independent variable", ylab = "cumulative RR")
 
 
+### model diagnotistic plots
+
+
+#deviance residuals over time
 data_for_model %>% 
   ungroup() %>% 
-  mutate(resid = c(rep(NA, lag_length), model1$residuals)) %>% 
-  ggplot(aes(x = date, y = resid)) +
-  geom_point() + facet_wrap(~NAB_station)
+  mutate(resid = c(rep(NA, 30), residuals(model1, type = "deviance"))) %>% 
+  ggplot(aes(x = date, y = resid)) + theme_bw() +
+  geom_point() + facet_wrap(~NAB_station) + ylab("Deviance residuals")
+  
 
+#partial autocorrelation plots of the deviance residuals
+pacf(residuals(model1, type = "deviance"), na.action=na.omit,main="From original model")
+
+# INCLUDE THE 1-DAY LAGGED RESIDUAL IN THE MODEL
+resid_model1 <- c(rep(NA, 30), residuals(model1, type = "deviance"))
+model2 <- update(model1, .~. + tsModel::Lag(resid_model1, 1) + + tsModel::Lag(resid_model1, 2))
+pacf(residuals(model2, type = "deviance"), na.action=na.omit,main="From model adjusted for residual autocorrelation")
+
+summary(model1)
+summary(model2)
+
+#partial autocorrelation plots of the deviance residuals
+pacf(res7,na.action=na.omit,main="From original model")
+
+# INCLUDE THE 1-DAY LAGGED RESIDUAL IN THE MODEL
+model9 <- update(model7,.~.+Lag(res7,1))
 
 ##
 # #what curves do different numbers of knots provide?
-ggplot(data_for_model, aes(date, pbir, col = cup_all_ls)) +
-  scale_color_viridis_c()+
-  geom_point(alpha = 0.9, size = 3) +
-  geom_smooth(method = lm, formula = y ~ splines::ns(x, 10), se = FALSE, lwd = 2) + 
+ggplot(data_for_model, aes(date, n_cases)) + #, col = cup_all_ls
+  #scale_color_viridis_c()+
+  geom_point(alpha = 0.2, size = 3) +
+  geom_smooth(method = lm, formula = y ~ splines::ns(x, 30), se = FALSE, lwd = 1) + 
   #geom_line(aes(x = date, y=rollmean(cup_all_ls, 7, na.pad=TRUE)), color = "black") +
   theme_bw() + facet_wrap(~NAB_station, scales = "free")
 
@@ -1574,6 +1657,11 @@ cowplot::plot_grid(panel_a, panel_b, #panel_c,
                    
                    labels = c("ED visits", "all Cupressaceae", "trees"))#, "other pollen"))
 
+cup_all_lag <- crossbasis(data_for_model$ja_lm, lag = 21,
+                          argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 3))
+
+data_for_model_pred <- data_for_model %>% mutate()
+predict.glm(model1, )
 
 
 # 
