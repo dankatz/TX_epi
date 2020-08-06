@@ -5,6 +5,7 @@ library(readr)
 library(stringr)
 library(lubridate)
 library(ggplot2)
+library(Amelia)
 
 rm(list = ls())
 
@@ -21,8 +22,8 @@ NAB_tx <- left_join(NAB, NAB_locations) %>%
          mo = month(date),
          doy = yday(date),
          year = year(date),
-         ja = case_when( mo < 3   ~ Cupressaceae,
-                         mo > 11 ~ Cupressaceae,
+         ja = case_when( doy < 60   ~ Cupressaceae,
+                         doy > 345 ~ Cupressaceae,
                          TRUE ~ 0),
          cup_other = case_when(ja == 0 ~ Cupressaceae,
                                ja > 0 ~ 0)) %>%
@@ -32,7 +33,7 @@ rowwise()%>%
                             Morus,  Olea, Platanus, Tilia ,Celtis,  Prosopis, Myrica, Ulmus, Tsuga, na.rm = TRUE),
          pol_other = Total.Pollen.Count - ja - cup_other - trees)%>%  
   dplyr::select(date, mo, doy, year, City, FIPS, county_name, MSA, Lat, Long, NAB_station,
-                ja, cup_other, trees, pol_other,
+                ja, cup_other, trees, pol_other, Cupressaceae,
                 tot_pol = Total.Pollen.Count) 
 
 date_station_grid <- expand_grid(seq(min(NAB$date),max(NAB$date), by = '1 day'), 
@@ -43,6 +44,8 @@ date_station_grid <- expand_grid(seq(min(NAB$date),max(NAB$date), by = '1 day'),
 pd <- left_join(date_station_grid, NAB_tx) %>%
           arrange(NAB_station, date)
 
+
+ggplot(pd, aes(x = doy, y = Cupressaceae + 0.9, color = (ja))) + geom_point() + facet_wrap(~NAB_station) + theme_bw() + scale_y_log10()
 
 ### download and extract met data from Daymet ###############################################################
 library(daymetr)
@@ -104,7 +107,9 @@ all_monitors_clean4 <- read_csv("C:/Users/dsk856/Box/texas/NAB/weatherNOAA_at_NA
 pd3 <- left_join(pd2, all_monitors_clean4)
 #write_csv(pd3, "C:/Users/dsk856/Box/texas/NAB/NAB_weather200611.csv")
 
-### create derived variables and subset training and testing datasets ###########################################
+
+
+### modeling with RF: create derived variables and subset training and testing datasets ###########################################
 library(magrittr)
 library("slider")
 library(purrr)
@@ -276,6 +281,7 @@ pd7 <- left_join(pd7, focal_pollen_missing_data_rfint_mod_join)
 
 pd7_save <- pd7 %>% select(NAB_station, date, contains("rfint_"))
 #write_csv(pd7_save, "C:/Users/dsk856/Box/texas/NAB/NAB_pollen_modeled200618.csv")
+#pd7_save <- read_csv("C:/Users/dsk856/Box/texas/NAB/NAB_pollen_modeled200618.csv")
 
 #some graphs to check up on it
 pd7 %>% filter(year == 2017) %>% # & NAB_station == "Georgetown") %>% 
@@ -321,6 +327,89 @@ pd7 %>% filter(year == 2017) %>% # & NAB_station == "Georgetown") %>%
 
 
 
+### trying out Amelia for imputation ############################################################################
+pd3 <- read_csv("C:/Users/dsk856/Box/texas/NAB/NAB_weather200611.csv", guess_max = 40000)
+pd3 <- pd3 %>% mutate(mo = month(date),
+                      doy = as.numeric(day(date)),
+                      year = year(date),
+                      year_f = paste0("y_", year(date))) %>% 
+  filter(NAB_station != "College Station") 
+pd4 <- pd3 %>% dplyr::select(c(#train0_test1, 
+  NAB_station, ja, cup_other, trees, pol_other, tot_pol,
+  mo, doy, year, year_f, date,
+  starts_with("met_"), 
+  starts_with("ghcn_")))%>% 
+  select(-ghcn_psun, -ghcn_tsun, -ghcn_snow, -ghcn_snwd, - ghcn_tavg, -ghcn_wesd,-ghcn_wesf,
+         -starts_with("ghcn_wt"))
+
+data_sub <- filter(pd4, NAB_station == "Georgetown") %>% select(-cup_other, - ja, -pol_other, -tot_pol, -year_f) %>% 
+  select(-ghcn_fmtm, -ghcn_pgtm, -ghcn_wdf2, -ghcn_wdf5, -ghcn_wsf2, -ghcn_wsf5,  -ghcn_awnd) %>% 
+  mutate(trees_l = log10(trees + 1)) %>% select(-trees) %>% 
+  select(trees_l, met_tmaxdegc, date)
+names(data_sub)
+summary(data_sub)
+
+data_sub <- as.data.frame(data_sub)
+trees_matrix <- matrix(data = c(17, 0, 4), nrow = 1)
+data_sub_out <- amelia(x = data_sub,  ts = "date", #polytime = 2, 
+                       cs = "NAB_station", 
+                       lags = "trees_l", leads = "trees_l", 
+                       bounds = trees_matrix)
+summary(data_sub_out)
+compare.density(data_sub_out, var = "trees_l")
+
+#tscsPlot(data_sub_out, cs = 1, var = "trees_l")
+data_sub_out_imp1 <- data_sub_out$imputations$imp1
+ggplot(data_sub_out_imp1, aes(x = date, y = trees_l)) + geom_point()
+ggplot(data_sub, aes(x = date, y = trees_l)) + geom_point()
+
+data_sub_out_imp1 %>% 
+  mutate(trees_l_orig = data_sub$trees_l) %>% 
+  filter(date > mdy("11 - 1- 2015") & date <  mdy("11 - 1- 2016")) %>% 
+  ggplot( aes(x = date, y = trees_l)) + 
+  geom_point(color = "red", size = 2) +
+  geom_point(aes(x= date, y = trees_l_orig), size = 1) 
+
+
+# ?amelia
+# ggplot(data_sub, aes(x = date, y = trees_l)) + geom_point() + scale_y_log10()
+# names(pd4)
+# 
+# str(africa)
+# str(data_sub)
+# 
+# data(africa)
+# a.out <- amelia(x = africa, cs = "country", ts = "year", logs = "gdp_pc")
+# summary(a.out)
+# plot(a.out)
+
+
+### trying out mtsdi ###############################################################################################
+library(mtsdi)
+f <- ~trees_l + met_tmaxdegc + date 
+test <- mnimput(formula = f, data = data_sub, eps=1e-3, ts=TRUE, method="arima", sp.control=list(df=c(7,7,7,7,7)))
+str(test)
+data_sub_out_imp1 <- predict(test) %>% 
+  transmute(trees_l_imp = trees_l) %>% 
+  bind_cols(., data_sub)
+
+head(data_sub_out_imp1)
+
+data_sub_out_imp1%>% 
+  filter(date > mdy("11 - 1- 2015") & date <  mdy("11 - 1- 2016")) %>% 
+  ggplot( aes(x = date, y = trees_l_imp)) + 
+  geom_point(color = "red", size = 2) +
+  geom_point(aes(x= date, y = trees_l), size = 1) 
+
+
+data(miss)
+f <- ~c31+c32+c33+c34+c35
+## one-window covariance
+i <- mnimput(f,miss,eps=1e-3,ts=TRUE, method="spline",sp.control=list(df=c(7,7,7,7,7)))
+summary(i)
+
+
+### trying out tsImpute
 
 
 
