@@ -107,6 +107,48 @@ all_monitors_clean4 <- read_csv("C:/Users/dsk856/Box/texas/NAB/weatherNOAA_at_NA
 pd3 <- left_join(pd2, all_monitors_clean4)
 #write_csv(pd3, "C:/Users/dsk856/Box/texas/NAB/NAB_weather200611.csv")
 
+### summarizing missing pollen data: stats for manuscript #########################################################################
+pd3 <- read_csv("C:/Users/dsk856/Box/texas/NAB/NAB_weather200611.csv", guess_max = 40000)
+pd3 <- pd3 %>% mutate(mo = month(date),
+                      doy = as.numeric(day(date)),
+                      year = year(date),
+                      year_f = paste0("y_", year(date))) 
+
+#proportion of data missing by site
+#Note that Waco B appears to have some observations where NA has been miscoded as 0
+pd3 %>% 
+  filter(date > mdy("10 - 31 - 2015") & date < mdy("1 - 1 - 2018")) %>% 
+  select(trees, NAB_station) %>% 
+  group_by(NAB_station) %>% 
+  summarize(
+            n_NA = sum(is.na(trees)),
+            n_obs = n(),
+            prop_NA = n_NA/n_obs)
+
+#proportion of data missing by day of week
+pd3 %>% 
+  filter(date > mdy("10 - 31 - 2015") & date < mdy("1 - 1 - 2018")) %>% 
+  select(tot_pol, date, NAB_station) %>% 
+  mutate(
+    week_day = weekdays(date),
+    week_day = forcats::fct_relevel(week_day, "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")) %>% 
+  group_by(NAB_station, week_day) %>% 
+  summarize(
+    n_NA = sum(is.na(tot_pol)),
+    n_obs = n(),
+    prop_NA = n_NA/n_obs) %>% 
+  ggplot(aes(x = week_day, y = prop_NA)) + geom_bar(stat = "identity") + facet_wrap(~NAB_station) +
+  xlab("day of week") + ylab("observations missing (proportion)") + theme_bw()
+
+
+#figure of missing data by time (for total pollen)
+pd3 %>% 
+  mutate(NA_flag = case_when(is.na(tot_pol) ~ 0.1,
+                             !is.na(tot_pol) ~ NaN)) %>% 
+  filter(date > mdy("10 - 31 - 2015") & date < mdy("1 - 1 - 2018")) %>% 
+ggplot(aes(x = date, y = tot_pol + 1)) + geom_point() + scale_y_log10() + facet_wrap(~NAB_station) +
+  geom_jitter(aes(x = date, y = NA_flag), col = "red", size = 0.2, width = 0.01, height = 0.1) + theme_bw() + ylab(total~pollen~(grains/m^3))
+
 
 
 ### modeling with RF: create derived variables and subset training and testing datasets ###########################################
@@ -126,6 +168,8 @@ pd3 <- pd3 %>% mutate(mo = month(date),
                   year = year(date),
                   year_f = paste0("y_", year(date))) %>% 
         filter(NAB_station != "College Station") 
+        #filter(NAB_station == "Flower Mound")
+        #filter(NAB_station != "Waco B") 
 pd4 <- pd3 %>% dplyr::select(c(#train0_test1, 
                                     NAB_station, ja, cup_other, trees, pol_other, tot_pol,
                                     mo, doy, year, year_f, date,
@@ -150,6 +194,15 @@ pd4 <- pd3 %>% dplyr::select(c(#train0_test1,
                    cup_other_ma5 = slide_vec(cup_other, ~mean(.x[c(1:2,4:5)], na.rm = TRUE), .before = 2, .after = 2),
                    cup_other_ma7 = slide_vec(cup_other, ~mean(.x[c(1:3,5:7)], na.rm = TRUE), .before = 3, .after = 3),
                    cup_other_ma9 = slide_vec(cup_other, ~mean(.x[c(1:4,6:9)], na.rm = TRUE), .before = 4, .after = 4),
+                   cup_all = cup_other + ja,
+                   cup_all_l1 = lag(cup_all, 1),
+                   cup_all_l2 = lag(cup_all, 2),
+                   cup_all_lead1 = lead(cup_all, 1),
+                   cup_all_lead2 = lead(cup_all, 2),
+                   cup_all_ma3 = slide_vec(cup_all, ~mean(.x[c(1,3)], na.rm = TRUE), .before = 1, .after = 1),
+                   cup_all_ma5 = slide_vec(cup_all, ~mean(.x[c(1:2,4:5)], na.rm = TRUE), .before = 2, .after = 2),
+                   cup_all_ma7 = slide_vec(cup_all, ~mean(.x[c(1:3,5:7)], na.rm = TRUE), .before = 3, .after = 3),
+                   cup_all_ma9 = slide_vec(cup_all, ~mean(.x[c(1:4,6:9)], na.rm = TRUE), .before = 4, .after = 4),
                    trees_l1 = lag(trees, 1),
                    trees_l2 = lag(trees, 2),
                    trees_lead1 = lead(trees, 1),
@@ -176,8 +229,24 @@ is.nan.data.frame <- function(x) {do.call(cbind, lapply(x, is.nan))}
 pd4[is.nan(pd4)] <- NA
 
 #records with missing pollen data 
-pol_missing_data <- pd4 %>% filter(is.na(ja)) %>% #when one pollen type is NA all other types are also NA
+pol_missing_data <- pd4 %>% filter(is.na(tot_pol)) %>% #when one pollen type is NA all other types are also NA
                     mutate(focal_pollen = NA)
+
+#records with missing pollen data on the days where Georgetown had missing data
+# pol_missing_data_georgetown <- pd4 %>%  
+#   filter(NAB_station == "Georgetown" ) %>% 
+#   filter(date > mdy("11 - 1 - 2015") & date < mdy("1 - 1- 2018")) %>% 
+#   select(trees) %>% 
+#   transmute(missing_george = is.na(trees))
+# 
+# pol_missing_data_sim_fm <- pd4 %>%  
+#   filter(NAB_station == "Flower Mound" ) %>% 
+#   filter(date > mdy("11 - 1 - 2015") & date < mdy("1 - 1- 2018")) %>% 
+#   bind_cols(., pol_missing_data_georgetown) %>% 
+#   rowwise() %>% 
+#   mutate(focal_pollen = ifelse(isTRUE(missing_george), NA, trees)) 
+           
+           
 
 
 ### modeling missing pollen using tidymodels and RFIntervals ################################################
@@ -192,19 +261,21 @@ library(rfinterval)
 #I have, however, made it easy to interchange the pollen type
 
 ### Set focal pollen type here:
-focal_pollen_var <- "pol_other" #ja, cup_other, trees, pol_other, tot_pol
+focal_pollen_var <- "trees" #ja, cup_other, trees, pol_other, tot_pol
 ###
 
 pd5 <- pd4 %>% #filter(NAB_station == "San Antonio A") %>% 
+  #filter(NAB_station != "Waco B") %>% 
+  #filter(NAB_station == "Flower Mound") %>% 
   filter(!is.na(ja)) %>% #remove the missing observations
   select_if(~sum(!is.na(.)) > 0) %>%  #remove columns that are all NAs
   mutate(focal_pollen = .data[[focal_pollen_var]]) #making the focal pollen type a column; see programming with dplyr vignette
   
-pd5_split <- initial_split(pd5, prop = 0.8)
+pd5_split <- initial_split(pd5, prop = 0.9)
 pd5_recipe <- training(pd5_split) %>%
   recipe(focal_pollen ~.) %>%
-  step_rm(ja, cup_other, trees, pol_other, tot_pol) %>%  #remove the pollen measurements to prevent data leakage
-  step_log(all_outcomes(), contains("_ma"), contains("_lead"), contains("_l1"), contains("_l2"), offset = 0.9) %>% 
+  step_rm(ja, cup_other, trees, pol_other, tot_pol) %>%  #remove the pollen measurements to prevent data leakage #, NAB_station
+  step_log(all_outcomes(), contains("_ma"), contains("_lead"), contains("_l1"), contains("_l2"), offset = 1) %>% 
   step_center(all_numeric(), -all_outcomes(), -contains("_ma"), -contains("_lead"), -contains("_l1"), -contains("_l2"), -date) %>%
   step_scale(all_numeric(), -all_outcomes(), -contains("_ma"), -contains("_lead"), -contains("_l1"), -contains("_l2"), -date) %>%
   #step_nzv(all_predictors()) %>% 
@@ -224,7 +295,7 @@ pd5_recipe <- training(pd5_split) %>%
 pd5_training <- pd5_recipe %>% bake(training(pd5_split))
 pd5_testing  <- pd5_recipe %>% bake(testing(pd5_split)) 
 pd5_testing_nab <- testing(pd5_split)$NAB_station
-focal_pollen_missing_data_baked <- pd5_recipe %>% bake(new_data = pol_missing_data)
+focal_pollen_missing_data_baked <- pd5_recipe %>% bake(new_data = pol_missing_data) #pol_missing_data_sim_fm
 
 #running a separate model to check the importance of each variable
 pd5_ranger <- rand_forest(trees = 1000, mode = "regression", mtry = 5) %>%
@@ -251,6 +322,7 @@ pd5_testing %>% mutate(NAB_station = pd5_testing_nab,
              ymax = focal_pollen_hat_rfint_up,
              color = NAB_station)) + 
   geom_pointrange() + geom_smooth(method = "lm") + geom_abline(slope = 1, intercept = 0) + theme_bw()
+#summary(lm(pd5_testing$focal_pollen ~ unlist(rfint_mod$testPred)))
 
 
 #predict the missing pollen data
@@ -274,7 +346,7 @@ focal_pollen_missing_data_rfint_mod_join <- focal_pollen_missing_data_baked %>% 
 
 #to save the output switch this around between pollen types
 #pd7 <- left_join(pd4, focal_pollen_missing_data_rfint_mod_join)
-pd7 <- left_join(pd7, focal_pollen_missing_data_rfint_mod_join)
+ pd7 <- left_join(pd7, focal_pollen_missing_data_rfint_mod_join)
 
 #do predictions match?
 #pd7 %>% ggplot(aes(x = focal_pollen_hat_log, y = focal_pollen_hat_rfint_log_mean)) + geom_point() + facet_wrap(~NAB_station) + theme_bw()
@@ -301,12 +373,13 @@ pd7 %>% filter(year == 2017) %>% # & NAB_station == "Georgetown") %>%
                       color = "red")) 
 
 pd7 %>% filter(year == 2017) %>% # & NAB_station == "Georgetown") %>% 
-  ggplot(aes(x = date, y = log(pol_other + 0.9 ))) + geom_point() + facet_wrap(~NAB_station) + theme_bw() +
-  geom_pointrange(aes(x = date,
-                      y = pol_other_rfint_log_mean,
-                      ymin = pol_other_rfint_log_mean - pol_other_rfint_log_sd,
-                      ymax = pol_other_rfint_log_mean + pol_other_rfint_log_sd, # + focal_pollen_rfint_log_sd),
-                      color = "red")) 
+  ggplot(aes(x = date, y = log(pol_other + 1 ))) + geom_point() + facet_wrap(~NAB_station) + theme_bw() +
+  geom_point(aes(x = date, y = pol_other_rfint_log_mean,  color = "red")) + scale_color_discrete(name = "modeled data")
+  # geom_pointrange(aes(x = date,
+  #                     y = pol_other_rfint_log_mean,
+  #                     ymin = pol_other_rfint_log_mean - pol_other_rfint_log_sd,
+  #                     ymax = pol_other_rfint_log_mean + pol_other_rfint_log_sd, # + focal_pollen_rfint_log_sd),
+  #                     color = "red")) 
 
 pd7 %>% filter(year == 2017) %>% # & NAB_station == "Georgetown") %>% 
   ggplot(aes(x = date, y = log(pol_other + 0.9 ))) + geom_point() + facet_wrap(~NAB_station) + theme_bw() +
@@ -409,13 +482,99 @@ i <- mnimput(f,miss,eps=1e-3,ts=TRUE, method="spline",sp.control=list(df=c(7,7,7
 summary(i)
 
 
-### trying out tsImpute
+### trying out tsImpute ##########################################################################
+library(imputeTS)
+
+pd3 <- read_csv("C:/Users/dsk856/Box/texas/NAB/NAB_weather200611.csv", guess_max = 40000)
+pd3 <- pd3 %>% mutate(mo = month(date),
+                      doy = as.numeric(day(date)),
+                      year = year(date),
+                      year_f = paste0("y_", year(date))) 
+      #filter(NAB_station != "College Station") 
+pd4 <- pd3 %>% dplyr::select(c(#train0_test1, 
+  NAB_station, date, ja, cup_other, trees, pol_other, tot_pol))
+
+pd4 %>% 
+  filter(NAB_station == "San Antonio A") %>% 
+  filter(date > mdy("11 -1 - 2015") & date < mdy("1 - 1- 2018")) %>% 
+  select(tot_pol) %>% 
+ggplot_na_distribution(x = .) + scale_y_log10()
+
+pd4 %>% 
+  filter(NAB_station != "College Station" & NAB_station != "Waco B") %>% 
+  filter(date > mdy("11 - 1 - 2015") & date < mdy("1 - 1- 2018")) %>% 
+  select(tot_pol) %>% 
+ggplot_na_gapsize(.)
 
 
+#linear interpolation
+pd4 %>% 
+  filter(NAB_station == "Dallas" ) %>% 
+  #filter(NAB_station != "College Station" & NAB_station != "Waco B") %>% 
+  filter(date > mdy("11 - 1 - 2015") & date < mdy("1 - 1- 2018")) %>% 
+  select(trees) %>% 
+  mutate(trees = log10(trees + 1)) %>% 
+  mutate(trees_int = unlist(na_interpolation(., option = "linear"))) %>% 
+  ggplot_na_imputations(x_with_na = .$trees, x_with_imputations = .$trees_int)  
+
+#kalman filtering using either an ARIMA or structural time series approach
+pd4 %>% 
+  filter(NAB_station == "Dallas" ) %>% 
+  #filter(NAB_station != "College Station" & NAB_station != "Waco B") %>% 
+  filter(date > mdy("11 - 1 - 2015") & date < mdy("1 - 1- 2018")) %>% 
+  select(trees) %>% 
+  mutate(trees = log10(trees + 1)) %>% 
+  mutate(trees_int = unlist(na_kalman(., model = "auto.arima"))) %>% # model = "auto.arima",  model = "StructTS"
+  ggplot_na_imputations(x_with_na = .$trees, x_with_imputations = .$trees_int)  
 
 
+#comparing the fit of a few different methods by altering a known time series
+#using the Flower Mound as a test case since there are only 2 NA values
+ts_fm <- pd4 %>%  
+  filter(NAB_station == "Flower Mound" ) %>% 
+  filter(date > mdy("11 - 1 - 2015") & date < mdy("1 - 1- 2018")) %>% 
+  select(trees) 
+summary(ts_fm)
+
+#using the NA positions from Georgetown to create NAs in the Flower Mound time series
+georgetown_NAs <- pd4 %>%  
+  filter(NAB_station == "Georgetown" ) %>% 
+  filter(date > mdy("11 - 1 - 2015") & date < mdy("1 - 1- 2018")) %>% 
+  select(trees) %>% 
+  is.na() 
+ts_fm_sim_na <- ts_fm
+ts_fm_sim_na[georgetown_NAs == TRUE] <- NA
+
+#comparing a few different options for the efficacy of different methods
+#linear interpolation
+ts_fm_sm_na_int_lin <- na_interpolation(ts_fm_sim_na, option = "linear")
+
+plot( log(ts_fm[georgetown_NAs == TRUE] + 1), 
+      log(ts_fm_sm_na_int_lin[georgetown_NAs == TRUE] + 1))
+summary(lm(log(ts_fm[georgetown_NAs == TRUE] + 1) ~ 
+             log(ts_fm_sm_na_int_lin[georgetown_NAs == TRUE] + 1)))
+
+#Kalman smoothing
+ts_fm_sm_na_int_kal_arima <- na_kalman(ts_fm_sim_na, model = "auto.arima")
+
+plot( log(ts_fm[georgetown_NAs == TRUE] + 1), 
+      log(ts_fm_sm_na_int_kal_arima[georgetown_NAs == TRUE] + 1))
+summary(lm(log(ts_fm[georgetown_NAs == TRUE] + 1) ~ 
+             log(ts_fm_sm_na_int_kal_arima[georgetown_NAs == TRUE] + 1)))
 
 
+#comparing to the RF model I created (earlier in script)
+#this was custom made by plugging in a particular dataframe into the RF predictions, the regular version shouldn't go here
+focal_pollen_missing_data_rfint_fm_sim <- focal_pollen_missing_data_rfint_mod_join %>% 
+  select(trees_rfint_log_mean) %>% 
+  unlist
+
+plot( log(ts_fm[georgetown_NAs == TRUE] + 1), 
+      focal_pollen_missing_data_rfint_fm_sim[georgetown_NAs == TRUE] + 1)
+summary(lm(log(ts_fm[georgetown_NAs == TRUE] + 1) ~ 
+             log(focal_pollen_missing_data_rfint_fm_sim[georgetown_NAs == TRUE] + 1)))
+#R2 for this method for trees in Flower Mound when simulating missing data (taking the Georgetown station): is 0.93
+  #whereas when using rf for just Flower Mound with existing data split into testing/training data, the R2 is 0.87 
 
 
 
