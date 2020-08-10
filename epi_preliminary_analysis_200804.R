@@ -1479,8 +1479,10 @@ opa_day %>%
 #### analysis of a single station with a distributed lags model using dlm package #######################################
 library(dlnm)
 library(splines)
+library(recipes)
 
 #str(data_for_model)
+names(opa_day)
 data_for_model <- opa_day %>%
   filter(date > ymd("2015 - 11 - 01")) %>% # & date < ymd("2016 - 05 - 01")) %>%
   #filter(NAB_station == "San Antonio A") %>% #unique(opa_day$NAB_station)
@@ -1514,7 +1516,16 @@ data_for_model <- opa_day %>%
          pol_other_l = log10(pol_other + 0.9),
          pol_other_lm = case_when(is.na(pol_other_l) ~ pol_other_rfint_log_mean,
                            !is.na(pol_other_l) ~ pol_other_l),
-         pol_other_lms = scale(pol_other_lm)) %>%
+         pol_other_lms = scale(pol_other_lm),
+         met_prcp_flag = ifelse(met_prcpmmday > 0, 1, 0),
+         met_prcpmmday_l = log10(met_prcpmmday + 1),
+         met_prcpmmday_ls = scale(met_prcpmmday_l),
+         met_sradWm2_s = scale(met_sradWm2),
+         met_tmaxdegc_s = scale(met_tmaxdegc),
+         met_tmindegc_s = scale(met_tmindegc),
+         met_tavg_s = scale(met_tmaxdegc + met_tmindegc),
+         met_vpPa_s = scale(met_vpPa)
+         ) %>%
     dplyr::select(NAB_station, date, n_cases, n_cases_s, pbir, child_pop, log_child_pop,
                 week_day,
                 ja_lms, ja_lm, 
@@ -1527,12 +1538,13 @@ data_for_model <- opa_day %>%
                 v_tests_pos_RSV,
                 v_tests_pos_Corona,
                 flu_d, 
-                v_tests_pos_Rhinoviruss, v_tests_pos_RSVs, v_tests_pos_Coronas, flu_ds) %>%
+                v_tests_pos_Rhinoviruss, v_tests_pos_RSVs, v_tests_pos_Coronas, flu_ds,
+                met_prcpmmday, met_sradWm2, met_tmaxdegc, met_tmindegc, met_vpPa, #hist(data_for_model$met_prcpmmday_ls)
+                met_prcpmmday_l, met_prcpmmday_ls, met_sradWm2_s, met_tmaxdegc_s, met_tmindegc_s, met_vpPa_s, met_tavg_s, met_prcp_flag
+                ) %>%
   arrange(NAB_station, date) %>%
   filter(complete.cases(.)) %>% 
-  filter(NAB_station != "Waco A",
-         NAB_station != "Waco B",
-         NAB_station != "College Station") %>% 
+   filter(   NAB_station != "Waco B") %>% # NAB_station != "Waco A",   # NAB_station != "College Station") %>% 
   group_by(NAB_station) %>% 
   mutate(time = row_number())
 
@@ -1547,7 +1559,7 @@ poly_degree <- 5
 cup_all_lag <- crossbasis(data_for_model$ja_lm, lag = 21,
                     argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 3))
 trees_lag <- crossbasis(data_for_model$trees_lm, lag = 21, 
-                            argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 4))
+                            argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 3))
 pol_other_lag <- crossbasis(data_for_model$pol_other_lm, lag = 10, 
                             argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 3))
 
@@ -1556,10 +1568,11 @@ model1 <- glm(n_cases ~ NAB_station +
                 cup_all_lag +  trees_lag + pol_other_lag + 
                 v_tests_pos_Rhinoviruss + v_tests_pos_RSVs + v_tests_pos_Coronas + flu_ds + 
                 week_day + 
-                ns(time, 30),
+                #met_vpPa_s + #humidity matters and overwrites temperature and precip
+                ns(time, 12),
                 family = quasipoisson, data = data_for_model)
 summary(model1)
-
+hist(model1$fitted.values)
 
 #cup all hist(data_for_model$ja_lm)
 pred1.pm <- crosspred(cup_all_lag,  model1, at = 1:4, bylag = 0.2, cen = 0, cumul = TRUE)
@@ -1604,6 +1617,116 @@ pacf(res7,na.action=na.omit,main="From original model")
 
 # INCLUDE THE 1-DAY LAGGED RESIDUAL IN THE MODEL
 model9 <- update(model7,.~.+Lag(res7,1))
+
+### predict in different scenarios ##########################################
+hist(data_for_model$n_cases, breaks = 20); sum(data_for_model$n_cases)
+
+#no J. ashei
+newdata <- data_for_model %>%  #data_for_model$ja_lm
+  mutate(ja_lm = -0.04575749)
+
+cup_all_lag <- crossbasis(newdata$ja_lm, lag = 21,
+                          argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 3))
+trees_lag <- crossbasis(data_for_model$trees_lm, lag = 21, 
+                        argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 3))
+pol_other_lag <- crossbasis(data_for_model$pol_other_lm, lag = 10, 
+                            argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 3))
+
+model_pred <- predict.glm(object = model1, newdata = newdata, type = "response") 
+hist(model_pred)
+sum(model_pred, na.rm = TRUE)
+
+hist(model1$fitted.values)
+sum(model1$fitted.values)
+
+sum(model_pred, na.rm = TRUE) - sum(model1$fitted.values)
+
+
+#no trees
+newdata <- data_for_model %>%  #data_for_model$trees_lm
+  mutate(trees_lm = -0.04575749)
+
+trees_lag <- crossbasis(newdata$trees_lm, lag = 21, 
+                        argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 3))
+cup_all_lag <- crossbasis(data_for_model$ja_lm, lag = 21,
+                          argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 3))
+pol_other_lag <- crossbasis(data_for_model$pol_other_lm, lag = 10, 
+                            argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 3))
+
+model_pred <- predict.glm(object = model1, newdata = newdata, type = "response") 
+hist(model_pred)
+sum(model_pred, na.rm = TRUE)
+
+hist(model1$fitted.values)
+sum(model1$fitted.values)
+
+sum(model_pred, na.rm = TRUE) - sum(model1$fitted.values)
+
+
+#no other_pol
+newdata <- data_for_model %>%  #data_for_model$pol_other_lm
+  mutate(pol_other_lm = -0.04575749)
+
+pol_other_lag <- crossbasis(newdata$pol_other_lm, lag = 10, 
+                            argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 3))
+cup_all_lag <- crossbasis(data_for_model$ja_lm, lag = 21,
+                          argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 3))
+trees_lag <- crossbasis(data_for_model$trees_lm, lag = 21, 
+                        argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 3))
+
+model_pred <- predict.glm(object = model1, newdata = newdata, type = "response") 
+hist(model_pred)
+sum(model_pred, na.rm = TRUE)
+
+hist(model1$fitted.values)
+sum(model1$fitted.values)
+
+sum(model_pred, na.rm = TRUE) - sum(model1$fitted.values)
+
+
+#no viruses
+#restoring the crossbasis 
+cup_all_lag <- crossbasis(data_for_model$ja_lm, lag = 21,
+                          argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 3))
+trees_lag <- crossbasis(data_for_model$trees_lm, lag = 21, 
+                        argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 3))
+pol_other_lag <- crossbasis(data_for_model$pol_other_lm, lag = 10, 
+                            argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 3))
+
+#START UP AGAIN HERE, NEXT STEP IS FIGURING OUT HOW TO RESCALE
+newdata <- data_for_model %>%  #data_for_model$v_tests_pos_Rhinoviruss #str(data_for_model$v_tests_pos_Rhinoviruss)
+  mutate(v_tests_pos_Rhinoviruss = 0,
+         v_tests_pos_RSVs = 0, 
+         v_tests_pos_Coronas = 0,
+         flu_ds = 0)
+
+model_pred <- predict.glm(object = model1, newdata = newdata, type = "response") 
+hist(model_pred)
+sum(model_pred, na.rm = TRUE)
+
+hist(model1$fitted.values)
+sum(model1$fitted.values)
+
+sum(model_pred, na.rm = TRUE) - sum(model1$fitted.values)
+
+
+
+
+
+str(model_pred)
+
+trees_lag <- crossbasis(data_for_model$trees_lm, lag = 21, 
+                        argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 3))
+
+
+model1 <- glm(n_cases ~ NAB_station + 
+                offset(log(child_pop)) + 
+                cup_all_lag +  trees_lag + pol_other_lag + 
+                v_tests_pos_Rhinoviruss + v_tests_pos_RSVs + v_tests_pos_Coronas + flu_ds + 
+                week_day + 
+                #met_vpPa_s + #humidity matters and overwrites temperature and precip
+                ns(time, 12),
+              family = quasipoisson, data = data_for_model)
 
 ##
 # #what curves do different numbers of knots provide?
