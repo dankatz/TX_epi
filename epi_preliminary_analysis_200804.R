@@ -292,8 +292,22 @@ head(weather_at_stations)
 
 
 ### Virus monitoring data from DHHS #############################################################
+install.packages("imputeTS")
+library(imputeTS)
+
 virus <- read_csv("C:/Users/dsk856/Desktop/misc_data/virus_2015_2017_daily.csv")
-#virus$date
+
+#linear interpolation of virus data
+virus <- virus %>% 
+  mutate(v_tests_pos_Rhinovirus_ms = as.numeric(scale(na_interpolation(v_tests_pos_Rhinovirus))),
+         v_tests_pos_RSV_ms = as.numeric(scale(na_interpolation(v_tests_pos_RSV))),
+         v_tests_pos_Corona_ms = as.numeric(scale(na_interpolation(v_tests_pos_Corona))),
+         v_tests_perc_pos_Rhinovirus_ms = as.numeric(scale(na_interpolation(v_tests_perc_pos_Rhinovirus))),
+         v_tests_perc_pos_RSV_ms = as.numeric(scale(na_interpolation(v_tests_perc_pos_RSV))),
+         v_tests_perc_pos_Corona_ms = as.numeric(scale(na_interpolation(v_tests_perc_pos_Corona))))
+
+ggplot(virus, aes(x = date, y = v_tests_perc_pos_Rhinovirus_ms)) + geom_step() 
+
 
 
 # ### Google Trends, pollen seasons, and other unused data ###########################################################################
@@ -1480,6 +1494,10 @@ opa_day %>%
 library(dlnm)
 library(splines)
 library(recipes)
+
+test <- (scale(opa_day$v_tests_pos_Rhinovirus))
+str(test)
+as.numeric(test)
 
 #str(data_for_model)
 names(opa_day)
