@@ -26,7 +26,8 @@ rm(list = ls())
 ### load in NAB data from 2009-2019 ##################################################################
 NAB_locations <- read_csv("C:/Users/dsk856/Desktop/misc_data/EPHT_Pollen Station Inventory_062019_dk200331.csv")
 NAB <- read_csv("C:/Users/dsk856/Desktop/misc_data/NAB2009_2019_pollen_191230.csv", guess_max = 92013)
-NAB_modeled <- read_csv("C:/Users/dsk856/Desktop/misc_data/NAB_pollen_modeled200618.csv", guess_max = 31912)
+# NAB_modeled_orig <- read_csv("C:/Users/dsk856/Desktop/misc_data/NAB_pollen_modeled200618.csv", guess_max = 31912)
+NAB_modeled <- read_csv("C:/Users/dsk856/Desktop/misc_data/NAB_pollen_modeled200810.csv", guess_max = 31912)
 # msa <- read.csv("C:/Users/dsk856/Desktop/misc_data/county_to_MSA_clean.csv", stringsAsFactors = FALSE)
 # msa$FIPS <- sprintf("%03s",msa$FIPS) %>% sub(" ", "0",.) %>% sub(" ", "0",.)
 
@@ -34,26 +35,45 @@ NAB_tx <- left_join(NAB, NAB_locations) %>%
   filter(State == "TX") %>%
   mutate(date = ymd(Date),
          doy = yday(date),
-         year = year(date),
-         mo = month(date) ,
-         ja = case_when( mo < 3  ~ Cupressaceae,
-                         mo > 11 ~ Cupressaceae,
-                         TRUE ~ 0) ,
+         ja = case_when( doy < 60   ~ Cupressaceae,
+                         doy > 345 ~ Cupressaceae,
+                         TRUE ~ 0),
          cup_other = case_when(ja == 0 ~ Cupressaceae,
                                ja > 0 ~ 0)) %>%  #, FIPS = as.character(FIPS
   rowwise()%>%
   mutate(trees = sum(Acer, Alnus, Betula, Carpinus.Ostrya, Corylus, Fraxinus, Juglans, Liquidambar, Other.Tree.Pollen,                    
                      Populus, Pseudotsuga, Quercus, Salix, Arecaceae, Carya, Cyperaceae, Fagus, Ligustrum,
                      Morus, Olea, Platanus, Tilia, Celtis, Prosopis, Myrica, Ulmus, Tsuga, na.rm = TRUE), #not including Pinaceae
-         pol_other = Total.Pollen.Count - ja - cup_other - trees)%>%  
-  dplyr::select(date, doy, year, City, FIPS, county_name, MSA, Lat, Long, NABStation_ID, file, 
-                ja, cup_other, trees, pol_other,  #Total.Pollen.Count, Cupressaceae,grass = Gramineae...Poaceae,Ambrosia, Quercus, Ulmus, Acer, Platanus,    
-                NAB_station) %>%
+         pol_other = Total.Pollen.Count - ja - cup_other - trees,
+         tot_pol = Total.Pollen.Count)%>%  
+  dplyr::select(date, doy, file, #City, FIPS, county_name, MSA, Lat, Long, NABStation_ID, file, 
+                ja, cup_other, trees, pol_other, tot_pol,  #Total.Pollen.Count, Cupressaceae,grass = Gramineae...Poaceae,Ambrosia, Quercus, Ulmus, Acer, Platanus,    
+                NAB_station)
+
+
+NAB_tx <- left_join(NAB_modeled, NAB_tx) %>% 
+  select(-file) #names(NAB_tx)
+
+NAB_tx <- left_join(NAB_tx, NAB_locations) %>%  #have to do a second join with location data due to some unfortunate formatting
+  dplyr::select(date, doy, file, City, FIPS, county_name, MSA, Lat, Long, NABStation_ID, 
+                ja, cup_other, trees, pol_other, tot_pol, ja_rfint_log_mean, cup_other_rfint_log_mean, trees_rfint_log_mean,  
+                pol_other_rfint_log_mean, 
+                NAB_station) %>%   #Total.Pollen.Count, Cupressaceae,grass = Gramineae...Poaceae,Ambrosia, Quercus, Ulmus, Acer, Platanus,    
   mutate(FIPS = sprintf("%03s",FIPS), #NAB_tx$FIPS
                          FIPS = sub(" ", "0",FIPS),
-                         FIPS = sub(" ", "0",FIPS))
-NAB_tx <- full_join(NAB_tx, NAB_modeled) %>% 
-  mutate(doy = yday(date))
+                         FIPS = sub(" ", "0",FIPS),
+        doy = yday(date),
+        year = year(date),
+        mo = month(date)) %>% 
+  #Quality control for Waco B, which appears to have coded many NA values as zeros
+  mutate(ja = case_when(tot_pol == 0 & NAB_station == "Waco B" ~ NA_real_, TRUE ~ ja), 
+         cup_other = case_when(tot_pol == 0 & NAB_station == "Waco B" ~ NA_real_, TRUE ~ cup_other),
+         cup_all = case_when(tot_pol == 0 & NAB_station == "Waco B" ~ NA_real_, TRUE ~ ja + cup_other),
+         trees = case_when(tot_pol == 0 & NAB_station == "Waco B" ~ NA_real_, TRUE ~ trees),
+         pol_other = case_when(tot_pol == 0 & NAB_station == "Waco B" ~ NA_real_, TRUE ~ pol_other),
+         tot_pol = case_when(tot_pol == 0 & NAB_station == "Waco B" ~ NA_real_, TRUE ~ tot_pol))
+
+
 # head(NAB_tx)
 # head(NAB_modeled)
 #str(NAB_tx)
@@ -146,14 +166,15 @@ opa_raw_sf <- opa_raw %>%
 NAB_tx_sf <- NAB_tx %>% 
               select(Lat, Long, NAB_station) %>%
               distinct() %>%
-              filter(NAB_station != "") %>% #not sure how this made its way in, maybe a floating decimal?
+              #filter(NAB_station != "") %>% #not sure how this made its way in, maybe a floating decimal?
+              filter(!is.na(Lat)) %>% #not sure how this made its way in
               st_as_sf(coords = c("Long", "Lat"), crs = 4326)  %>%
               st_transform(crs = 26914)  #UTM 14 N
 
 distances <- st_distance(opa_raw_sf, NAB_tx_sf, by_element = FALSE) /1000 #calculate distances and convert to km
 distances_df <- as.data.frame(distances) 
 distances_min <- apply(distances_df, 1, FUN = min) #minimum distance to a NAB station
-which_station_closest <- apply(distances_df, 1, function(x) which(x == min(x, na.rm = TRUE))) #which statin is closest
+which_station_closest <- apply(distances_df, 1, function(x) which(x == min(x, na.rm = TRUE))) #which station is closest
 NAB_station_lookup <- data.frame(NAB_station = NAB_tx_sf$NAB_station, n_lookup = 1:9)
 station_looked_up <- left_join(data.frame(n_lookup = which_station_closest), NAB_station_lookup)
 opa_raw_sf <- mutate(opa_raw_sf, NAB_min_dist = distances_min, NAB_station = station_looked_up$NAB_station)
@@ -292,7 +313,6 @@ head(weather_at_stations)
 
 
 ### Virus monitoring data from DHHS #############################################################
-install.packages("imputeTS")
 library(imputeTS)
 
 virus <- read_csv("C:/Users/dsk856/Desktop/misc_data/virus_2015_2017_daily.csv")
@@ -304,9 +324,12 @@ virus <- virus %>%
          v_tests_pos_Corona_ms = as.numeric(scale(na_interpolation(v_tests_pos_Corona))),
          v_tests_perc_pos_Rhinovirus_ms = as.numeric(scale(na_interpolation(v_tests_perc_pos_Rhinovirus))),
          v_tests_perc_pos_RSV_ms = as.numeric(scale(na_interpolation(v_tests_perc_pos_RSV))),
-         v_tests_perc_pos_Corona_ms = as.numeric(scale(na_interpolation(v_tests_perc_pos_Corona))))
+         v_tests_perc_pos_Corona_ms = as.numeric(scale(na_interpolation(v_tests_perc_pos_Corona))),
+         v_tests_perc_pos_Rhinovirus_m = na_interpolation(v_tests_perc_pos_Rhinovirus),
+         v_tests_perc_pos_RSV_m = na_interpolation(v_tests_perc_pos_RSV),
+         v_tests_perc_pos_Corona_m = na_interpolation(v_tests_perc_pos_Corona))
 
-ggplot(virus, aes(x = date, y = v_tests_perc_pos_Rhinovirus_ms)) + geom_step() 
+#ggplot(virus, aes(x = date, y = v_tests_perc_pos_Rhinovirus_ms)) + geom_step() 
 
 
 
@@ -395,7 +418,6 @@ flu$date <- ymd(flu$date)
 
 
 ### prepare data for exploration and modeling ######################################################################
-
 ## combine the various datasets
 #head(opa_day)
 str(opa_day)
@@ -434,21 +456,13 @@ names(opa_day)
 
 opa_day <- opa_day %>% ungroup() %>% group_by(NAB_station) %>% arrange(NAB_station, date) %>%
                                mutate(
-                              # cupr = Cupressaceae,
-                              # cupr_l1 = lag(Cupressaceae, n = 1),
-                              # cupr_m7 = rollapply(Cupressaceae, 7, align='right', fill=NA,  function(x) mean(x, na.rm = TRUE)),
-                              # tot_pol = Total.Pollen.Count,
-                              # tot_pol_l1 = lag(Total.Pollen.Count,n = 1),
-                              # tot_pol_m7 = rollapply(Total.Pollen.Count,7,align='right',fill=NA,  function(x) mean(x, na.rm = TRUE)),
-                              # flu_d_m7 = rollapply(flu_d, 7, align='right',fill=NA,  function(x) mean(x, na.rm = TRUE)),
-                              # flu_d_m14 = rollapply(flu_d, 14, align='right',fill=NA,  function(x) mean(x, na.rm = TRUE)),
                               week_day = weekdays(date),
                               week_day = forcats::fct_relevel(week_day, "Monday", "Tuesday", "Wednesday", "Thursday", "Friday",
                                                                      "Saturday", "Sunday"))  %>%
                       filter(date > mdy('9-30-15')) 
 
-write_csv(opa_day, "C:/Users/dsk856/Desktop/thcic_analysis/opa_day200707.csv")
-opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day200707.csv", guess_max = 7434)
+#write_csv(opa_day, "C:/Users/dsk856/Desktop/thcic_analysis/opa_day200810.csv")
+opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day200810.csv", guess_max = 8260)
 
 ### assess temporal trends in ED visits for an unrelated cause (injury) ########################
 # block_groups_near_NAB_nostation <- unlist(block_groups_near_NAB$GEOID)
@@ -503,16 +517,16 @@ panel_pol <-  opa_day %>%
 #time series for viruses
 panel_vir <-
   opa_day %>% 
-    select(NAB_station, date, v_tests_pos_Corona, v_tests_pos_Rhinovirus, v_tests_pos_RSV) %>% 
-    pivot_longer(cols = c(v_tests_pos_Corona, v_tests_pos_Rhinovirus, v_tests_pos_RSV), 
+    select(NAB_station, date, v_tests_perc_pos_Corona_m, v_tests_perc_pos_Rhinovirus_m, v_tests_perc_pos_RSV_m) %>% 
+    pivot_longer(cols = c(v_tests_perc_pos_Corona_m, v_tests_perc_pos_Rhinovirus_m, v_tests_perc_pos_RSV_m), 
                  names_to = "virus_type", values_to = "positive_tests") %>% 
     arrange(NAB_station, virus_type, date) %>% 
     #filter(!is.na(pollen)) %>% 
     #filter(NAB_station == "San Antonio A" | NAB_station == "San Antonio B") %>% 
     # filter(date > mdy ("11 - 1- 2017") ) %>% 
     ggplot(aes(x = date, y = positive_tests, color = virus_type)) + theme_few() + 
-    geom_line() + #geom_point() + 
-    ylab("positive tests (n)") +
+    geom_step() + #geom_point() + 
+    ylab("positive tests (%)") +
     scale_color_discrete(breaks = c("v_tests_pos_Corona", "v_tests_pos_Rhinovirus","v_tests_pos_RSV"),
                        labels = c("Seasonal coronavirus", "Rhinovirus","RSV"), name = "virus type") +
     theme(strip.text.x = element_blank(),
@@ -540,9 +554,9 @@ panel_ed <-
   
 #putting together the time series into one plot  
 ts_panels <- cowplot::plot_grid(panel_ed, panel_pol, panel_vir, align = "v", ncol = 1, rel_heights = c(1,3,1))
-ggsave(file = "C:/Users/dsk856/Desktop/thcic_analysis/time_series_fig_poster200806.jpg", plot = ts_panels, 
+ggsave(file = "C:/Users/dsk856/Desktop/thcic_analysis/time_series_fig_poster200810.jpg", plot = ts_panels, 
        height =20, width = 17, units = "cm", dpi = 300)  
-?ggsave
+
 
 
 #comparing pollen to ED visits for asthma over time
@@ -1493,244 +1507,303 @@ opa_day %>%
 #### analysis of a single station with a distributed lags model using dlm package #######################################
 library(dlnm)
 library(splines)
-library(recipes)
+library(dplyr)
+library(readr)
+library(lubridate)
+library(ggplot2)
 
-test <- (scale(opa_day$v_tests_pos_Rhinovirus))
-str(test)
-as.numeric(test)
+opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day200810.csv", guess_max = 8260)
+# ggplot(opa_day, aes( x = date, y = log(trees + 1))) + geom_point() + facet_wrap(~NAB_station) +
+#   geom_point(aes(x = date, y = trees_rfint_log_mean), color = "red")
 
 #str(data_for_model)
 names(opa_day)
 data_for_model <- opa_day %>%
-  filter(date > ymd("2015 - 11 - 01")) %>% # & date < ymd("2016 - 05 - 01")) %>%
+  filter(date > ymd("2015 - 10 - 01") & date < ymd("2018 - 01 - 01")) %>% 
   #filter(NAB_station == "San Antonio A") %>% #unique(opa_day$NAB_station)
-    mutate(
-         n_cases_s = scale(n_cases),
-         log_child_pop = log(children_pop),
-         child_pop = children_pop,
-         NAB_station_n = as.numeric(as.factor(NAB_station)),
-         v_tests_pos_Rhinoviruss = scale(v_tests_pos_Rhinovirus),
-         v_tests_pos_RSVs = scale(v_tests_pos_RSV),
-         v_tests_pos_Coronas = scale(v_tests_pos_Corona),
-         flu_ds = scale(flu_d),
-         ja_l = log10(ja + 0.9),
-         ja_lm = case_when(is.na(ja_l) ~ ja_rfint_log_mean,
-                           !is.na(ja_l) ~ ja_l), #hist(data_for_model$ja_lm)
-         ja_lms = scale(ja_lm),
-         cup_other_l = log10(cup_other + 0.9),
-         cup_other_lm = case_when(is.na(cup_other_l) ~ cup_other_rfint_log_mean,
-                           !is.na(cup_other_l) ~ cup_other_l),
-         cup_other_lms = scale(cup_other_lm),
-         cup_all_l = log10(ja + cup_other + 0.9),
-         #cup_all_lm = ja_lm + cup_other_lm,
-         cup_all_ls = scale(cup_all_l),
-         pol_tot_ls = scale(log10(ja + cup_other + trees + pol_other + 0.9)),
-         trees_l = log10(trees + 0.9),
-         trees_lm = case_when(is.na(trees_l) ~ trees_rfint_log_mean,
-                           !is.na(trees_l) ~ trees_l),
-         trees_lms = scale(trees_lm),
-         not_cup_ls = scale(log10(pol_other + trees + 0.9)),
-         cup_ls = scale(log10(ja + cup_other + 0.9)),
-         pol_other_l = log10(pol_other + 0.9),
-         pol_other_lm = case_when(is.na(pol_other_l) ~ pol_other_rfint_log_mean,
-                           !is.na(pol_other_l) ~ pol_other_l),
-         pol_other_lms = scale(pol_other_lm),
-         met_prcp_flag = ifelse(met_prcpmmday > 0, 1, 0),
-         met_prcpmmday_l = log10(met_prcpmmday + 1),
-         met_prcpmmday_ls = scale(met_prcpmmday_l),
-         met_sradWm2_s = scale(met_sradWm2),
-         met_tmaxdegc_s = scale(met_tmaxdegc),
-         met_tmindegc_s = scale(met_tmindegc),
-         met_tavg_s = scale(met_tmaxdegc + met_tmindegc),
-         met_vpPa_s = scale(met_vpPa)
-         ) %>%
-    dplyr::select(NAB_station, date, n_cases, n_cases_s, pbir, child_pop, log_child_pop,
+  #filter(NAB_station != "College Station" & NAB_station != "Waco A" & NAB_station != "Waco B") %>% 
+  mutate(
+    n_cases_s = scale(n_cases),
+    log_child_pop = log(children_pop),
+    child_pop = children_pop,
+    NAB_station_n = as.numeric(as.factor(NAB_station)),
+    flu_ds = as.numeric(scale(flu_d)),
+    ja_l = log(ja + 1), #mean(log(opa_day$ja + 1), na.rm = TRUE) #mean(opa_day$ja_rfint_log_mean, na.rm = TRUE)
+    ja_lm = case_when(is.na(ja_l) ~ ja_rfint_log_mean,
+                      !is.na(ja_l) ~ ja_l), #hist(data_for_model$ja_lm)
+    ja_lms = scale(ja_lm),
+    cup_other_l = log(cup_other + 1),
+    cup_other_lm = case_when(is.na(cup_other_l) ~ cup_other_rfint_log_mean,
+                             !is.na(cup_other_l) ~ cup_other_l),
+    cup_other_lms = scale(cup_other_lm),
+    cup_all_l = log(ja + cup_other +1),
+    cup_all_lm =  case_when(is.na(ja) ~ log((exp(cup_other_rfint_log_mean) -1 + exp(ja_rfint_log_mean) -1) + 1) ,
+                             !is.na(ja) ~ cup_all_l),
+    cup_all_ls = scale(cup_all_l),
+    pol_tot_ls = scale(log(ja + cup_other + trees + pol_other + 1)),
+    trees_l = log(trees + 1),
+    trees_lm = case_when(is.na(trees_l) ~ trees_rfint_log_mean,
+                         !is.na(trees_l) ~ trees_l),
+    trees_lms = scale(trees_lm),
+    not_cup_ls = scale(log(pol_other + trees + 1)),
+    cup_ls = scale(log(ja + cup_other + 1)),
+    pol_other_l = log(pol_other + 1),
+    pol_other_lm = case_when(is.na(pol_other_l) ~ pol_other_rfint_log_mean,
+                             !is.na(pol_other_l) ~ pol_other_l),
+    pol_other_lms = scale(pol_other_lm),
+    met_prcp_flag = ifelse(met_prcpmmday > 0, 1, 0),
+    met_prcpmmday_l = log(met_prcpmmday + 1),
+    met_prcpmmday_ls = scale(met_prcpmmday_l),
+    met_sradWm2_s = scale(met_sradWm2),
+    met_tmaxdegc_s = scale(met_tmaxdegc),
+    met_tmindegc_s = scale(met_tmindegc),
+    met_tavg_s = scale(met_tmaxdegc + met_tmindegc),
+    met_vpPa_s = scale(met_vpPa)
+  ) %>%
+  dplyr::select(NAB_station, date, n_cases, n_cases_s, pbir, child_pop, log_child_pop,
                 week_day,
-                ja_lms, ja_lm, 
+                ja_lms, ja_lm, #ja_rfint_log_mean,
                 cup_other_lms, cup_other_lm,
-                cup_all_l, cup_all_ls,
+                #cup_all_l, cup_all_ls, 
+                cup_all_lm,
                 trees_lms, trees_lm,
                 pol_other_lms, pol_other_lm,
-                not_cup_ls, cup_ls, pol_tot_ls,
-                v_tests_pos_Rhinovirus,
-                v_tests_pos_RSV,
-                v_tests_pos_Corona,
+                #not_cup_ls, cup_ls, pol_tot_ls,
+                v_tests_pos_Rhinovirus_ms,
+                v_tests_pos_RSV_ms,
+                v_tests_pos_Corona_ms,
+                v_tests_perc_pos_Rhinovirus_ms,
+                v_tests_perc_pos_RSV_ms,
+                v_tests_perc_pos_Corona_ms,
                 flu_d, 
-                v_tests_pos_Rhinoviruss, v_tests_pos_RSVs, v_tests_pos_Coronas, flu_ds,
+                flu_ds,
                 met_prcpmmday, met_sradWm2, met_tmaxdegc, met_tmindegc, met_vpPa, #hist(data_for_model$met_prcpmmday_ls)
                 met_prcpmmday_l, met_prcpmmday_ls, met_sradWm2_s, met_tmaxdegc_s, met_tmindegc_s, met_vpPa_s, met_tavg_s, met_prcp_flag
-                ) %>%
+  ) %>%
   arrange(NAB_station, date) %>%
   filter(complete.cases(.)) %>% 
-   filter(   NAB_station != "Waco B") %>% # NAB_station != "Waco A",   # NAB_station != "College Station") %>% 
+  #filter(   NAB_station != "Waco B") %>% # NAB_station != "Waco A",   # NAB_station != "College Station") %>% 
   group_by(NAB_station) %>% 
   mutate(time = row_number())
 
-ja_min <- min(data_for_model$ja_lms)
-# hist(data_for_model$ja_lms)
-# 
 
-lag_length  <- 21
-poly_degree <- 5
+# ggplot(data_for_model, aes( x = date, y = ja_lm)) + geom_point() + facet_wrap(~NAB_station) +
+#   geom_point(aes(x = date, y = ja_rfint_log_mean), color = "red")
 
 #polynomial distributed lag
-cup_all_lag <- crossbasis(data_for_model$ja_lm, lag = 21,
-                    argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 3))
+ja_lag <- crossbasis(data_for_model$ja_lm, lag = 21,
+                          argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 3)) #hist(data_for_model$ja_lm)
 trees_lag <- crossbasis(data_for_model$trees_lm, lag = 21, 
-                            argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 3))
-pol_other_lag <- crossbasis(data_for_model$pol_other_lm, lag = 10, 
+                        argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 3))
+pol_other_lag <- crossbasis(data_for_model$pol_other_lm, lag = 5, 
                             argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 3))
 
 model1 <- glm(n_cases ~ NAB_station + 
                 offset(log(child_pop)) + 
-                cup_all_lag +  trees_lag + pol_other_lag + 
-                v_tests_pos_Rhinoviruss + v_tests_pos_RSVs + v_tests_pos_Coronas + flu_ds + 
+                ja_lag +  trees_lag + pol_other_lag + 
+                # v_tests_pos_Rhinovirus_ms+
+                # v_tests_pos_RSV_ms+
+                # v_tests_pos_Corona_ms+
+                v_tests_perc_pos_Rhinovirus_ms+
+                v_tests_perc_pos_RSV_ms+
+                v_tests_perc_pos_Corona_ms+
+                flu_ds + 
                 week_day + 
-                #met_vpPa_s + #humidity matters and overwrites temperature and precip
+               # met_vpPa +  
+               # met_prcpmmday_ls + met_tavg_s + ##met_vpPa +  humidity matters and overwrites temperature and precip
                 ns(time, 12),
-                family = quasipoisson, data = data_for_model)
+              family = quasipoisson, data = data_for_model) #quasipoisson
 summary(model1)
 hist(model1$fitted.values)
+hist(data_for_model$n_cases)
 
-#cup all hist(data_for_model$ja_lm)
-pred1.pm <- crosspred(cup_all_lag,  model1, at = 1:4, bylag = 0.2, cen = 0, cumul = TRUE)
-plot(pred1.pm, "slices", var=1,  main="Association with a 10x increase in independent variable", ylab = "RR")
-plot(pred1.pm, "slices", var=1, cumul = TRUE,  main="Association with a 10x increase in independent variable", ylab = "cumulative RR")
+# INCLUDE THE 1-DAY LAGGED RESIDUAL IN THE MODEL
+resid_model1 <- c(rep(NA, 21), residuals(model1, type = "deviance"))
+model2 <- update(model1, .~. + tsModel::Lag(resid_model1, 1)) 
+
+#cup all  #hist(data_for_model$ja_lm)
+pred1_ja <- crosspred(ja_lag,  model2, at = 1:4, bylag = 0.2, cen = 0, cumul = TRUE)
+jpeg(filename = "C:/Users/dsk856/Desktop/thcic_analysis/results/ja_lag_200811.jpg", height = 15, width = 22, units = "cm", res = 200, 
+     pointsize = 19)
+plot(pred1_ja, "slices", var=1,  main="", ylab = "Risk Ratio + 95% CI", xlab = "Lag (days)", cex.lab=1.5, cex.axis=1.25)
+dev.off()
+
+jpeg(filename = "C:/Users/dsk856/Desktop/thcic_analysis/results/ja_lag_cumu_200811.jpg", height = 15, width = 22, units = "cm", res = 200, 
+     pointsize = 19)
+plot(pred1_ja, "slices", var=1, cumul = TRUE,  main="", cex.lab=1.5, cex.axis=1.25, 
+     ylab = "cumulative Risk Ratio + 95% CI", xlab = "Lag (days)")
+dev.off()
 
 #trees
-pred1.pm <- crosspred(trees_lag,  model1, at = 1, bylag = 0.2, cen = 0, cumul = TRUE)
-plot(pred1.pm, "slices", var=1,  main="Association with a 10x increase in independent variable", ylab = "RR")
-plot(pred1.pm, "slices", var=1, cumul = TRUE,  main="Association with a 10x increase in independent variable", ylab = "cumulative RR")
+pred1_trees <- crosspred(trees_lag,  model2, at = 1, bylag = 0.2, cen = 0, cumul = TRUE)
+jpeg(filename = "C:/Users/dsk856/Desktop/thcic_analysis/results/trees_lag_200811.jpg", height = 15, width = 22, units = "cm", res = 200, 
+     pointsize = 19)
+plot(pred1_trees, "slices", var=1,  main="", cex.lab=1.5, cex.axis=1.25, ylab = "Risk Ratio + 95% CI", xlab = "Lag (days)")
+dev.off()
+
+jpeg(filename = "C:/Users/dsk856/Desktop/thcic_analysis/results/trees_lag_cumu_200811.jpg", height = 15, width = 22, units = "cm", res = 200, 
+     pointsize = 19)
+plot(pred1_trees, "slices", var=1, cumul = TRUE,  main="", cex.lab=1.5, cex.axis=1.25,
+     ylab = "cumulative Risk Ratio + 95% CI", xlab = "Lag (days)")
+dev.off()
+
 
 #pol_other
-pred1.pm <- crosspred(pol_other_lag,  model1, at = 1, bylag = 0.2, cen = 0, cumul = TRUE)
-plot(pred1.pm, "slices", var=1,  main="Association with a 10x increase in independent variable", ylab = "RR")
-plot(pred1.pm, "slices", var=1, cumul = TRUE,  main="Association with a 10x increase in independent variable", ylab = "cumulative RR")
+pred1_pol_other <- crosspred(pol_other_lag,  model2, at = 1, bylag = 0.2, cen = 0, cumul = TRUE)
+jpeg(filename = "C:/Users/dsk856/Desktop/thcic_analysis/results/pol_other_lag_200811.jpg", height = 15, width = 22, units = "cm", res = 200, 
+     pointsize = 19)
+plot(pred1_pol_other, "slices", var=1,  main="", cex.lab=1.5, cex.axis=1.25, ylab = "Risk Ratio + 95% CI", xlab = "Lag (days)")
+dev.off()
 
+jpeg(filename = "C:/Users/dsk856/Desktop/thcic_analysis/results/pol_other_lag_cumu_200811.jpg", height = 15, width = 22, units = "cm", res = 200, 
+     pointsize = 19)
+plot(pred1_pol_other, "slices", var=1, cumul = TRUE,  main="", cex.lab=1.5, cex.axis=1.25,
+     ylab = "cumulative Risk Ratio + 95% CI", xlab = "Lag (days)")
+dev.off()
+
+
+
+### model selection #############################################
+# library("MuMIn")
+# 
+# #reuses AIC from poisson family estimation
+# x.quasipoisson <- function(...){
+#   res <- quasipoisson(...)
+#   res$aic <- poisson(...)$aic
+#   res
+# }
+# 
+# QAIC(update(model2, family = x.quasipoisson), chat = chat)
 
 ### model diagnotistic plots
-
-
 #deviance residuals over time
 data_for_model %>% 
   ungroup() %>% 
-  mutate(resid = c(rep(NA, 30), residuals(model1, type = "deviance"))) %>% 
+  mutate(resid = c(rep(NA, 22), residuals(model2, type = "deviance"))) %>% 
   ggplot(aes(x = date, y = resid)) + theme_bw() +
   geom_point() + facet_wrap(~NAB_station) + ylab("Deviance residuals")
   
 
 #partial autocorrelation plots of the deviance residuals
 pacf(residuals(model1, type = "deviance"), na.action=na.omit,main="From original model")
-
-# INCLUDE THE 1-DAY LAGGED RESIDUAL IN THE MODEL
-resid_model1 <- c(rep(NA, 30), residuals(model1, type = "deviance"))
-model2 <- update(model1, .~. + tsModel::Lag(resid_model1, 1) + + tsModel::Lag(resid_model1, 2))
 pacf(residuals(model2, type = "deviance"), na.action=na.omit,main="From model adjusted for residual autocorrelation")
 
 summary(model1)
 summary(model2)
 
-#partial autocorrelation plots of the deviance residuals
-pacf(res7,na.action=na.omit,main="From original model")
-
-# INCLUDE THE 1-DAY LAGGED RESIDUAL IN THE MODEL
-model9 <- update(model7,.~.+Lag(res7,1))
 
 ### predict in different scenarios ##########################################
 hist(data_for_model$n_cases, breaks = 20); sum(data_for_model$n_cases)
 
 #no J. ashei
-newdata <- data_for_model %>%  #data_for_model$ja_lm
-  mutate(ja_lm = -0.04575749)
+newdata <- data_for_model %>%  #data_for_model$cup_all_lm
+  mutate(ja_lm = 0,
+         cup_all_lm = 0) #min(data_for_model$ja_lm) max(data_for_model$ja_lm)
 
-cup_all_lag <- crossbasis(newdata$ja_lm, lag = 21,
+ja_lag <- crossbasis(newdata$ja_lm, lag = 18,
                           argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 3))
 trees_lag <- crossbasis(data_for_model$trees_lm, lag = 21, 
                         argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 3))
 pol_other_lag <- crossbasis(data_for_model$pol_other_lm, lag = 10, 
                             argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 3))
 
-model_pred <- predict.glm(object = model1, newdata = newdata, type = "response") 
+model_pred <- predict.glm(object = model2, newdata = newdata, type = "response") 
 hist(model_pred)
 sum(model_pred, na.rm = TRUE)
 
-hist(model1$fitted.values)
-sum(model1$fitted.values)
+hist(model2$fitted.values)
+sum(model2$fitted.values)
 
-sum(model_pred, na.rm = TRUE) - sum(model1$fitted.values)
+(sum(model2$fitted.values) - sum(model_pred, na.rm = TRUE) ) / sum(model2$fitted.values) 
 
 
 #no trees
 newdata <- data_for_model %>%  #data_for_model$trees_lm
-  mutate(trees_lm = -0.04575749)
+  mutate(trees_lm = 0)
 
 trees_lag <- crossbasis(newdata$trees_lm, lag = 21, 
                         argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 3))
-cup_all_lag <- crossbasis(data_for_model$ja_lm, lag = 21,
+ja_lag <- crossbasis(data_for_model$ja_lm, lag = 21,
                           argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 3))
-pol_other_lag <- crossbasis(data_for_model$pol_other_lm, lag = 10, 
+pol_other_lag <- crossbasis(data_for_model$pol_other_lm, lag = 6, 
                             argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 3))
 
-model_pred <- predict.glm(object = model1, newdata = newdata, type = "response") 
+model_pred <- predict.glm(object = model2, newdata = newdata, type = "response") 
 hist(model_pred)
 sum(model_pred, na.rm = TRUE)
 
-hist(model1$fitted.values)
-sum(model1$fitted.values)
+hist(model2$fitted.values)
+sum(model2$fitted.values)
 
-sum(model_pred, na.rm = TRUE) - sum(model1$fitted.values)
+(sum(model2$fitted.values) - sum(model_pred, na.rm = TRUE) ) / sum(model2$fitted.values) 
 
 
 #no other_pol
 newdata <- data_for_model %>%  #data_for_model$pol_other_lm
-  mutate(pol_other_lm = -0.04575749)
+  mutate(pol_other_lm = 0)
 
-pol_other_lag <- crossbasis(newdata$pol_other_lm, lag = 10, 
+pol_other_lag <- crossbasis(newdata$pol_other_lm, lag = 6, 
                             argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 3))
-cup_all_lag <- crossbasis(data_for_model$ja_lm, lag = 21,
+ja_lag <- crossbasis(data_for_model$ja_lm, lag = 21,
                           argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 3))
 trees_lag <- crossbasis(data_for_model$trees_lm, lag = 21, 
                         argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 3))
 
-model_pred <- predict.glm(object = model1, newdata = newdata, type = "response") 
+model_pred <- predict.glm(object = model2, newdata = newdata, type = "response") 
 hist(model_pred)
 sum(model_pred, na.rm = TRUE)
 
-hist(model1$fitted.values)
-sum(model1$fitted.values)
+hist(model2$fitted.values)
+sum(model2$fitted.values)
 
-sum(model_pred, na.rm = TRUE) - sum(model1$fitted.values)
+(sum(model2$fitted.values) - sum(model_pred, na.rm = TRUE) ) / sum(model2$fitted.values) 
 
 
 #no viruses
-#restoring the crossbasis 
-cup_all_lag <- crossbasis(data_for_model$ja_lm, lag = 21,
+#restoring the crossbasis to actual data
+ja_lag <- crossbasis(data_for_model$ja_lm, lag = 21,
                           argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 3))
 trees_lag <- crossbasis(data_for_model$trees_lm, lag = 21, 
                         argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 3))
-pol_other_lag <- crossbasis(data_for_model$pol_other_lm, lag = 10, 
+pol_other_lag <- crossbasis(data_for_model$pol_other_lm, lag = 6, 
                             argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 3))
 
-#START UP AGAIN HERE, NEXT STEP IS FIGURING OUT HOW TO RESCALE
-newdata <- data_for_model %>%  #data_for_model$v_tests_pos_Rhinoviruss #str(data_for_model$v_tests_pos_Rhinoviruss)
-  mutate(v_tests_pos_Rhinoviruss = 0,
-         v_tests_pos_RSVs = 0, 
-         v_tests_pos_Coronas = 0,
-         flu_ds = 0)
+#No rhinovirus
+newdata <- data_for_model %>%  #data_for_model$v_tests_perc_pos_Rhinovirus_ms #str(data_for_model$v_tests_pos_Rhinoviruss)
+  mutate(v_tests_perc_pos_Rhinovirus_ms = min(data_for_model$v_tests_perc_pos_Rhinovirus_ms)) 
+model_pred <- predict.glm(object = model2, newdata = newdata, type = "response") 
+(sum(model2$fitted.values) - sum(model_pred, na.rm = TRUE) ) / sum(model2$fitted.values) 
 
-model_pred <- predict.glm(object = model1, newdata = newdata, type = "response") 
-hist(model_pred)
-sum(model_pred, na.rm = TRUE)
+#No RSV
+newdata <- data_for_model %>%  #data_for_model$v_tests_perc_pos_RSV_ms #str(data_for_model$v_tests_pos_RSV)
+  mutate(v_tests_perc_pos_RSV_ms = min(data_for_model$v_tests_perc_pos_RSV_ms)) 
+model_pred <- predict.glm(object = model2, newdata = newdata, type = "response") 
+(sum(model2$fitted.values) - sum(model_pred, na.rm = TRUE) ) / sum(model2$fitted.values) 
 
-hist(model1$fitted.values)
-sum(model1$fitted.values)
+#No corona
+newdata <- data_for_model %>%  #data_for_model$v_tests_perc_pos_RSV_ms #str(data_for_model$v_tests_pos_RSV)
+  mutate(v_tests_perc_pos_Corona_ms = min(data_for_model$v_tests_perc_pos_Corona_ms)) 
+model_pred <- predict.glm(object = model2, newdata = newdata, type = "response") 
+(sum(model2$fitted.values) - sum(model_pred, na.rm = TRUE) ) / sum(model2$fitted.values) 
 
-sum(model_pred, na.rm = TRUE) - sum(model1$fitted.values)
+#No flu
+newdata <- data_for_model %>%  #data_for_model$flu_ds #str(data_for_model$v_tests_pos_RSV)
+  mutate(flu_ds = min(data_for_model$flu_ds)) 
+model_pred <- predict.glm(object = model2, newdata = newdata, type = "response") 
+(sum(model2$fitted.values) - sum(model_pred, na.rm = TRUE) ) / sum(model2$fitted.values) 
+
+
+# hist(model_pred)
+# sum(model_pred, na.rm = TRUE)
+# 
+# hist(model2$fitted.values)
+# sum(model2$fitted.values)
 
 
 
 
 
+#######################################################################################################
 str(model_pred)
 
 trees_lag <- crossbasis(data_for_model$trees_lm, lag = 21, 
