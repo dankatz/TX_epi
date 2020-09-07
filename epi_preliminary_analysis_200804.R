@@ -17,7 +17,7 @@ library(tigris)
 options(tigris_use_cache = TRUE)
 library(lwgeom)
 #install.packages("tidycensus")
-library(rjags)
+#library(rjags)
 
 rm(list = ls())
 #test
@@ -213,11 +213,6 @@ names(day_NAB_list) <- c("date", "NAB_station")
 day_NAB_list <- mutate(day_NAB_list, n_cases = 0, doy = yday(date))
 
 
-# #opa_msa
-# opa_msa_day <- opa_msa %>% group_by(date, MSA) %>% summarize(n_cases = n()) %>%
-#   mutate(doy = yday(date)) %>%
-#   filter(MSA != "--") #very few cases from here, so I'm removing it from the analysis
-#ggplot(opa_day, aes(x = date, y = n_cases)) + geom_point() + facet_wrap(~PAT_COUNTY)
 
 ### get the population of each census block group that's near an NAB station ###############################################
 #population for each of those counties #the following code is from RAZ
@@ -248,6 +243,9 @@ day_NAB_list <- mutate(day_NAB_list, n_cases = 0, doy = yday(date))
 #Variables that I want: ages 5-17  #B01001_003
 c_vars <- c("B01001_004", "B01001_005", "B01001_006", #males from 5-17 years old
             "B01001_028", "B01001_029", "B01001_030") #females from 5-17 years old
+c_vars_adult <- c(paste0("B0100", 1007:1025), #males
+                  paste0("B0100", 1031:1049)) %>%  #females
+                  gsub(pattern = "B01001", replacement ="B01001_", x = .) #adding the underscore back in
 
 #census_All_2017 <- get_acs(state="TX", geography="block group", year = 2017, variables=All_vars, geometry=FALSE) #takes 5 min
 #write_csv(census_All_2017, "C:/Users/dsk856/Desktop/misc_data/ACS_pop_by_age_2017_200331.csv")
@@ -283,6 +281,12 @@ pop_near_NAB <- census_All_2017_sf %>% filter(NAB_min_dist_bg < NAB_min_dist_thr
     filter(variable %in% c_vars) %>%  #only select variables that are population of children between 5 and 17
     group_by(NAB_station) %>%
     summarize(children_pop = sum(estimate)) #names(pop_near_NAB)
+
+pop_near_NAB_adult <- census_All_2017_sf %>% filter(NAB_min_dist_bg < NAB_min_dist_threshold) %>%
+  filter(variable %in% c_vars_adult) %>%  #only select variables that are population of children between 5 and 17
+  group_by(NAB_station) %>%
+  summarize(adult_pop = sum(estimate)) #names(pop_near_NAB)
+
 
 #block groups IDs that are near NAB stations
 block_groups_near_NAB <- census_All_2017_sf %>% filter(NAB_min_dist_bg < NAB_min_dist_threshold) %>%
@@ -332,85 +336,6 @@ virus <- virus %>%
 #ggplot(virus, aes(x = date, y = v_tests_perc_pos_Rhinovirus_ms)) + geom_step() 
 
 
-
-# ### Google Trends, pollen seasons, and other unused data ###########################################################################
-# ### daily google searches for "pollen" from Dallas, San Antonio, and Houston:
-# g_pollen_Dallas <- read.csv("C:/Users/dsk856/Desktop/misc_data/google_trends_Dallas_FtWorth_pollen_daily_2004_2019.csv")  %>% mutate(MSA = "Dallas-Fort Worth-Arlington")
-# g_pollen_Houston <- read.csv("C:/Users/dsk856/Desktop/misc_data/google_trends_Houston_pollen_daily_2004_2019.csv") %>% mutate(MSA = "Houston-The Woodlands-Sugar Land")
-# g_pollen_SanAntonio <- read.csv("C:/Users/dsk856/Desktop/misc_data/google_trends_SanAntonio_pollen_daily_2004_2019.csv") %>% mutate(MSA = "San Antonio-New Braunfels")
-# g_pollen_Austin <- read.csv("C:/Users/dsk856/Desktop/misc_data/google_trends_Austin_pollen_daily_2004_2019.csv") %>% mutate(MSA = "Austin-Round Rock")
-# 
-# g_pollen <- bind_rows(g_pollen_Dallas, g_pollen_Houston, g_pollen_SanAntonio, g_pollen_Austin)
-# g_pollen_join <- mutate(g_pollen, date = ymd(date),
-#                         hits_day_adj_pollen = hits_day_adj) %>% select(date, hits_day_adj_pollen, MSA)
-# opa_day <-   left_join(opa_day, g_pollen_join, by =c("date", "MSA")) 
-# 
-# ## more google trends data for "colds"
-# #unique(opa_day$MSA)
-# cold_dallas <- read_csv("C:/Users/dsk856/Desktop/misc_data/google_trends_Dallas_cold_daily_2004_2019.csv")
-# cold_dallas <- dplyr::select(cold_dallas, date, gtrend_cold = hits_day_adj) %>%
-#                 mutate(MSA = "Dallas-Fort Worth-Arlington")
-# 
-# common_cold_dallas <- read_csv("C:/Users/dsk856/Desktop/misc_data/google_trends_Dallas_common cold_daily_2004_2019.csv")
-# common_cold_dallas <- dplyr::select(common_cold_dallas, date, gtrend_common_cold = hits_day_adj) %>%
-#   mutate(MSA = "Dallas-Fort Worth-Arlington")
-# 
-# cold_sanant <- read_csv("C:/Users/dsk856/Desktop/misc_data/google_trends_SanAntoniocold_daily_2004_2019.csv")
-# cold_sanant <- dplyr::select(cold_sanant, date, gtrend_cold = hits_day_adj) %>%
-#   mutate(MSA = "San Antonio-New Braunfels")
-# 
-# common_cold_sanant <- read_csv("C:/Users/dsk856/Desktop/misc_data/google_trends_SanAntoniocommon cold_daily_2004_2019.csv")
-# common_cold_sanant <- dplyr::select(common_cold_sanant, date, gtrend_common_cold = hits_day_adj) %>%
-#   mutate(MSA = "San Antonio-New Braunfels")
-# 
-# gtrends_cold <- bind_rows(cold_dallas, cold_sanant)
-# gtrends_common_cold <- bind_rows(common_cold_dallas, common_cold_sanant)
-# 
-# 
-# opa_day <- left_join(opa_day, gtrends_cold)
-# opa_day <- left_join(opa_day, gtrends_common_cold)
-#
-# #load in daily rhinovirus data
-# colds <- read.csv("C:/Users/dsk856/Desktop/misc_data/rhino_daily_from_Eggo_191111.csv")
-# colds <- mutate(colds, date = ymd(date_vector)) %>% select(date, rhino_child, rhino_adult)
-# opa_day <- left_join(opa_day, colds)
-#   
-# #define pollen seasons based on general airborne pollen trends from NAB; see graph produced from "TX_NAB_googletrends190917.R"
-# opa_day$p_season <- "none"
-# opa_day$p_season[opa_day$doy > 349 | opa_day$doy < 31] <- "J. ashei"
-# opa_day$p_season[opa_day$doy > 85 & opa_day$doy < 115] <- "spring trees"
-# opa_day$p_season[opa_day$doy > 250 & opa_day$doy < 292] <- "ragweed"
-# 
-# 
-# #define pollen seasons based on google searches for 'pollen' 
-# opa_day$g_season <- "none"
-# #Juas
-# opa_day$g_season[opa_day$date > ymd("2015-12-11") & opa_day$date < ymd("2016-02-05")] <- "J. ashei"
-# opa_day$g_season[opa_day$date > ymd("2016-12-25") & opa_day$date < ymd("2017-01-25")] <- "J. ashei"
-# #didn't catch it at the end of Dec 2017
-# 
-# #spring trees
-# opa_day$g_season[opa_day$date > ymd("2016-03-01") & opa_day$date < ymd("2016-04-30")] <- "spring trees"
-# opa_day$g_season[opa_day$date > ymd("2017-03-01") & opa_day$date < ymd("2017-04-30")] <- "spring trees"
-# 
-# #ragweed
-# opa_day$g_season[opa_day$date > ymd("2015-09-10") & opa_day$date < ymd("2015-11-01")] <- "ragweed"
-# opa_day$g_season[opa_day$date > ymd("2016-09-15") & opa_day$date < ymd("2016-10-25")] <- "ragweed"
-# opa_day$g_season[opa_day$date > ymd("2017-09-10") & opa_day$date < ymd("2017-11-01")] <- "ragweed"
-# 
-# 
-# #define flu season based on CDC data in Texas
-# #install.packages("cdcdfluview")
-# #manually snagging general flu season definitions from TX for right now.  2017 is way higher than 2016 for flu.  Not sure how well this represents Austin
-# opa_day$flu <- "none"
-# opa_day$flu[opa_day$date > ymd("2016-02-14") & opa_day$date < ymd("2016-04-24")] <- "flu"
-# opa_day$flu[opa_day$date > ymd("2017-01-07") & opa_day$date < ymd("2017-04-01")] <- "flu"
-# 
-# #define cold season based on Ego et al. 2016 paper, fig. 2.  Cut off dates are just eye-balled
-# #based on Eggo et al. 2016, just choosing semi-arbitrary cut off date based on Fig 2: Aug 25 - Sep 20
-# opa_day$cold <- "none"
-# opa_day$cold[opa_day$doy > 237 & opa_day$doy < 263] <- "cold"
-
 ### load in flu data ###############################################################################
 #downloaded via CDCfluview package, script is here: 
 flu <- read.csv("C:/Users/dsk856/Desktop/misc_data/flu_total_positive191111.csv")
@@ -420,9 +345,10 @@ flu$date <- ymd(flu$date)
 ### prepare data for exploration and modeling ######################################################################
 ## combine the various datasets
 #head(opa_day)
-str(opa_day)
+# str(opa_day)
 opa_day <- opa %>% group_by(date, NAB_station) %>% #names(opa) opa$PAT_AGE_YEARS
   filter(between(PAT_AGE_YEARS, 5, 18)) %>%
+  #filter(between(PAT_AGE_YEARS, 6, 99)) %>%
   summarize(n_cases = n()) %>% 
   mutate(doy = yday(date)) 
 
@@ -430,13 +356,19 @@ opa_day <- bind_rows(day_NAB_list, opa_day)
 opa_day <- opa_day %>% group_by(date, NAB_station, doy) %>%
   summarize(n_cases = sum(n_cases)) #add up n_cases from each day
 
+#for children
 opa_day <- left_join(opa_day, pop_near_NAB)
 opa_day <- mutate(opa_day, pbir = ((n_cases/children_pop) * 10000), #PIBR per 10,000 for children 
                   pbir_py = (pbir / ((children_pop))) * 100000)
 opa_day <- left_join(opa_day, NAB_tx)
-# summary(NAB_tx$doy)
-# NAB_tx$doy
-# opa_day$date
+
+#PICK UP HERE WITH THE INTEGRATION OF ADULT POP
+#for adults
+# opa_day <- left_join(opa_day, pop_near_NAB_adult)
+# opa_day <- mutate(opa_day, pbir = ((n_cases/adult_pop) * 10000), #PIBR per 10,000 for children
+#                   pbir_py = (pbir / ((adult_pop))) * 100000)
+# opa_day <- left_join(opa_day, NAB_tx)
+
 
 opa_day <- left_join(opa_day, flu)
 opa_day <- left_join(opa_day, virus) ##head(virus)
@@ -461,8 +393,14 @@ opa_day <- opa_day %>% ungroup() %>% group_by(NAB_station) %>% arrange(NAB_stati
                                                                      "Saturday", "Sunday"))  %>%
                       filter(date > mdy('9-30-15')) 
 
-#write_csv(opa_day, "C:/Users/dsk856/Desktop/thcic_analysis/opa_day200810.csv")
+#children
+#write_csv(opa_day, "C:/Users/dsk856/Desktop/thcic_analysis/opa_day_200810.csv")
 opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day200810.csv", guess_max = 8260)
+
+#adults
+#write_csv(opa_day, "C:/Users/dsk856/Desktop/thcic_analysis/opa_day_adult_200907.csv")
+#opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_adult_200810.csv", guess_max = 8260)
+
 
 ### assess temporal trends in ED visits for an unrelated cause (injury) ########################
 # block_groups_near_NAB_nostation <- unlist(block_groups_near_NAB$GEOID)
@@ -894,7 +832,7 @@ test %>% group_by(cupr_high) %>%
   summarize(pbir_child_mean = mean(pbir_child))
 
 
-### more detailed exploration ###########################################
+### more detailed exploration 
 
 ggplot(opa_day, aes(x = date, y = pbir_py, color = hits_day_adj)) + geom_point(alpha = 0.9, size = 2) + theme_few() + 
   ylab("asthma-related ED visits per 100,000 person years in Travis County") + 
@@ -932,9 +870,6 @@ ggplot(opa_day, aes(x = date, y = pbir_py, color = log(flu_d))) + geom_point(alp
   scale_color_viridis_c() + #limits = c(0, 150) name = "var"
   scale_x_date(breaks = scales::pretty_breaks(n = 20)) + #, limits = as.Date(c('2016-02-14','2016-05-01'))) + 
   geom_line(aes(x = date, y=rollmean(pbir_py, 7, na.pad=TRUE, color = "gray")), inherit.aes = FALSE)
-
-
-
 ggplot(opa_day, aes(x = hits_day_adj, y = n_cases, color = doy)) + geom_point() + theme_bw() + scale_color_viridis_c() + geom_smooth()
 ggplot(opa_day, aes(x = flu_d, y = n_cases, color = doy)) + geom_point() + theme_bw() + scale_color_viridis_c() + geom_smooth()
 ggplot(opa_day, aes(x = tot_pol, y = pbir_child, color = doy)) + geom_point() + theme_bw() + scale_color_viridis_c() + geom_smooth() + scale_x_log10() +
@@ -951,560 +886,12 @@ ggplot(opa_day, aes(x = tot_pol, y = pbir_child, color = doy)) + geom_point() + 
 
  
 
-### some preliminary analysis #####################################################################
-head(opa_day) #unique(opa_day$county_name) #unique(opa_day$NAB_station)
-names(opa_day)
-test <- filter(opa_day, NAB_station == "San Antonio A" | NAB_station == "San Antonio B" ) #,  doy > 350 | doy < 50)
-#test <- opa_day
-fit <- glm(n_cases ~  
-             log10(tot_pol_m21 - cupr_m21 + 1) + 
-             #log10(cupr + 1) +
-             log10(cupr_m21 + 1)  +
-             #log10(cupr_m14 + 1)  +
-             #log10(cupr_m14 + 1) +
-             #log10(cupr_m21 + 1) +
-             #log10(cupr_m28 + 1) +
-             #log10(cupr_m35 + 1) +
-             # log10(tot_pol - cupr + 1) +   
-             # log10(cupr + 1) +
-             # log10(cupr_l1 + 1) +
-             # log10(cupr_l2 + 1) +
-             # log10(cupr_l3 + 1) +
-             # log10(cupr_l4 + 1) +
-             # log10(cupr_l5 + 1) +
-             # log10(cupr_l6 + 1) +
-             # log10(cupr_l7 + 1) +
-             # log10(cupr_l8 + 1) +
-             # log10(cupr_l9 + 1) +
-             # log10(cupr_l10+ 1) +
-             # log10(cupr_l11+ 1) +
-             # log10(cupr_l12+ 1) +
-             # log10(cupr_l13+ 1) +
-             # log10(cupr_l14+ 1) +
-             # log10(cupr_l15+ 1) +
-             # log10(cupr_l16+ 1) +
-             # log10(cupr_l17+ 1) +
-             # log10(cupr_l18+ 1) +
-             # log10(cupr_l19+ 1) +
-             # log10(cupr_l20+ 1) +
-             # log10(cupr_l21+ 1) +
-             v_tests_pos_RSV + v_tests_pos_Rhinovirus + v_tests_pos_Corona 
-             , data = test, family = "poisson")
 
-summary(fit)
 
-data_for_model <- filter(opa_day, !is.na(n_cases)) %>% 
-  dplyr::select(date, n_cases, county_name, PAT_COUNTY, children_pop, pbir_child,
-                cupr, cupr_m7, cupr_l1, cupr_l2, cupr_l3, cupr_m7, cupr_m14, 
-                tot_pol = Total.Pollen.Count,
-                Ambrosia,
-                Quercus,
-                #rhino_child, rhino_child_m7, rhino_child_m14,
-                flu_d, flu_d_m7 #flu_d_m14, 
-  ) %>%
-  arrange(date) %>%
-  na.omit
-data_for_model$county_n <- as.numeric(ordered(data_for_model$county_name)) #for some reason this wasn't working in piping
-data_for_model$obs_n <- 1:nrow(data_for_model)
 
 
 
-names(data_for_model)
-fit <- glm((pbir_child + 0.001) ~  cupr + #* county_name +
-                                  Ambrosia + # *county_name + 
-                                  Quercus  +#* county_name + 
-                                  flu_d  +
-                                  county_name, #* county_name, 
-            data = data_for_model, family = Gamma(link = "log"))
-summary(fit)
-
-fit <- glm(log(pbir_child + 0.001) ~  cupr +  #* county_name +
-             Ambrosia + # *county_name + 
-             Quercus  +#* county_name + 
-             flu_d  +
-             county_name, #* county_name, 
-           data = opa_day, family = "gaussian")
-summary(fit)
-hist((opa_day$pbir_child))
-
-par(mfrow=c(1,1))
-hist(log(opa_day$pbir_child))
-t.test(opa_day$pbir_py[opa_day$p_season == "J. ashei"], opa_day$pbir_py[opa_day$flu == "flu"])
-t.test(opa_day$pbir_py[opa_day$p_season == "J. ashei"], opa_day$pbir_py[opa_day$cold == "cold"])
-
-t.test(opa_day$pbir_py[opa_day$p_season == "spring trees"], opa_day$pbir_py[opa_day$flu == "flu"])
-t.test(opa_day$pbir_py[opa_day$p_season == "spring trees"], opa_day$pbir_py[opa_day$cold == "cold"])
-
-t.test(opa_day$pbir_py[opa_day$p_season == "J. ashei"], opa_day$pbir_py[opa_day$p_season == "spring trees"])
-
-
-names(opa_day)
-opa_day %>% group_by(county_name) %>%
-  summarize(oak = mean(Quercus),
-            rag = mean(Ambrosia),
-            cupr = mean(cupr))
-t.test(opa_day$cupr[opa_day$county_name == "Bexar"], opa_day$cupr[opa_day$county_name == "Dallas"])
-
-
-### a toy model for initial Poisson regression analysis ####################################################################
-# #construct some toy data to make sure everything is working
-# N <- 1000
-# beta0 <- 1  # intercept
-# beta1 <- 1  # slope
-# x <- rnorm(n=N)  # standard Normal predictor
-# mu <- beta0*1 + beta1*x  # linear predictor function
-# lambda <- exp(mu)  # CEF
-# y <- rpois(n=N, lambda=lambda)  # Poisson DV
-# dat <- data.frame(x,y)  
-# 
-# 
-# sink("model_a.txt")
-# cat("  
-#   ### model ##
-#     model{
-#     ## Likelihood
-#     for(i in 1:N){
-#       y[i] ~ dpois(lambda[i])
-#       log(lambda[i]) <- beta0 + beta1 * x[i]
-#     }     
-#       
-#     ## Priors 
-#     beta0 ~dnorm(0, 0.0001) 
-#     beta1 ~ dnorm(0, 0.0001)
-# }
-#     ",fill=TRUE)
-# sink() 
-# 
-# jags <- jags.model('model_a.txt', 
-#                    data = list(
-#                     x= dat$x,  # predictors
-#                     y= dat$y,  # DV
-#                     N=N  # sample size
-#                     #mu.beta=rep(0,2),  # priors centered on 0
-#                     #tau.beta=diag(.0001,2))
-#                     ),
-#                 n.chains = 3,
-#                 n.adapt = 1000)  # diffuse priors
-# 
-# dic <- dic.samples(jags, n.iter = 1000, type = "pD"); print(dic) #model DIC
-# #Sys.time()
-# update(jags,n.iter= 500) #update(jags,n.iter=1000) 
-# mcmc_samples_params <- coda.samples(jags, variable.names=c("beta1"),  n.iter = 1000, thin = 10) #variables to monitor
-# plot(mcmc_samples_params)
-
-
-### analysis of a single NAB station ##############################################################
-#assemble Williamson County data
-names(opa_day)
-unique(opa_day$NAB_station)
-data_for_model <- opa_day %>%
-  filter(NAB_station == "San Antonio A") %>% # == "Harris") %>% !is.na(county_name)) 
-  #filter(p_season == "J. ashei") %>%
-  dplyr::select(date, n_cases, 
-                week_day,
-                tot_pol, tot_pol_l1, tot_pol_l2, tot_pol_l3, tot_pol_m7, tot_pol_m14,
-                #cupr, cupr_l1, cupr_l2, cupr_l3, cupr_m7, cupr_m14, 
-                v_tests_pos_Rhinovirus,
-                v_tests_pos_RSV,
-                v_tests_pos_Corona,
-                flu_d, flu_d_m7, flu_d_m14, NAB_station) %>%
-  arrange(date) %>%
-  mutate(NAB_station_n = as.numeric(as.factor(NAB_station)))  %>%
-  filter(complete.cases(.))
-data_for_model <- data_for_model %>% mutate(obs_n = 1:nrow(data_for_model))
-
-
-# ggplot(data_for_model, aes(x= obs_n, y = v_tests_pos_Rhinovirus)) + theme_bw()+  #log(cupr_l1 + 1)
-#   geom_point() + geom_line() + facet_wrap(~NAB_station) + 
-#   geom_point(aes(x=obs_n, y =n_cases), color = "red") +
-#   geom_line(aes(x=obs_n, y =n_cases), color = "red")
-# 
-# ggplot(data_for_model, aes(x= log(cupr + 1), y = n_cases)) + theme_bw()+
-#   geom_point() + geom_smooth(method = "lm")
-# 
-
-  #hist(data_for_model$cupr)
-sink("model_a.txt")
-cat("  
-  ### model #
-    model{
-    ## Likelihood
-    for(i in 1:N){
-      y[i] ~ dpois(lambda[i])
-      log(lambda[i]) <- beta0 + 
-      beta[1] * tot_pol_log[i] + 
-      beta[2] * tot_pol_l1_log[i] + 
-      beta[3] * tot_pol_m7_log[i] + 
-      beta[4] * tot_pol_m14_log[i] +
-      
-      alpha[1] * v_tests_pos_Rhinovirus[i] + 
-      alpha[2] * v_tests_pos_RSV[i] + 
-      alpha[3] * v_tests_pos_Corona[i] +
-      
-      kappa[1] * flu_d[i]
-    }     
-      
-    ## Priors 
-    beta0 ~ dnorm(0, 0.0001) 
-    for(b in 1:4){beta[b] ~ dnorm(0, 0.0001)}
-    for(a in 1:3){alpha[a] ~ dnorm(0, 0.0001)}
-    kappa ~ dnorm(0, 0.0001)
-}
-    ",fill=TRUE)
-sink() 
-
-jags <- jags.model('model_a.txt', 
-                   data = list(
-                     #general stuff
-                     y = as.numeric(data_for_model$n_cases),  # DV
-                     N = nrow(data_for_model),  # sample size
-                     
-                     #NAB data 
-                     tot_pol_log = log(data_for_model$tot_pol + 1),  # predictors
-                     tot_pol_l1_log = log(data_for_model$tot_pol_l1 + 1),  
-                     tot_pol_l2_log = log(data_for_model$tot_pol_l2 + 1),  # predictors
-                     tot_pol_l3_log = log(data_for_model$tot_pol_l3 + 1),  # predictors
-                     tot_pol_m7_log = log(data_for_model$tot_pol_m7 + 1),  # predictors
-                     tot_pol_m14_log = log(data_for_model$tot_pol_m14 + 1),  # predictors
-                     
-                     #virus data
-                     v_tests_pos_Rhinovirus = as.numeric(data_for_model$v_tests_pos_Rhinovirus),
-                     v_tests_pos_RSV = as.numeric(data_for_model$v_tests_pos_RSV) ,
-                     v_tests_pos_Corona = as.numeric(data_for_model$v_tests_pos_Corona) ,
-                     flu_d = as.numeric(data_for_model$flu_d)
-                  
-                   ),
-                   n.chains = 3,
-                   n.adapt = 1000)  # diffuse priors
-
-#dic <- dic.samples(jags, n.iter = 1000, type = "pD"); print(dic) #model DIC
-#Sys.time()
-update(jags,n.iter= 1000) #update(jags,n.iter=1000) 
-mcmc_samples_params <- coda.samples(jags, variable.names=c("alpha", "beta", "kappa"),  n.iter = 1000, thin = 10) #variables to monitor
-plot(mcmc_samples_params)
-results_param <- summary(mcmc_samples_params)
-results_params <- data.frame(results_param$statistics, results_param$quantiles) #multi-var model
-results_params$parameter<-row.names(results_params)
-results_params$param<-substr(results_params$parameter,1,2)
-
-
-### analysis of all NAB stations ##############################################################
-#assemble Williamson County data
-names(opa_day)
-unique(opa_day$NAB_station)
-data_for_model <- opa_day %>%
-  ungroup()%>%
-  #filter(NAB_station == "San Antonio A") %>% # == "Harris") %>% !is.na(county_name)) 
-  #filter(p_season == "J. ashei") %>%
-  dplyr::select(date, n_cases, 
-                children_pop,
-                week_day,
-                tot_pol, tot_pol_l1, tot_pol_l2, tot_pol_l3, tot_pol_m7, tot_pol_m14,
-                #cupr, cupr_l1, cupr_l2, cupr_l3, cupr_m7, cupr_m14, 
-                v_tests_pos_Rhinovirus,
-                v_tests_pos_RSV,
-                v_tests_pos_Corona,
-                flu_d, flu_d_m7, flu_d_m14, NAB_station) %>%
-  arrange(date) %>%
-  mutate(NAB_station_n = as.numeric(as.factor(NAB_station)),
-         day_week_n = as.numeric(as.factor(week_day)))  %>%
-  filter(complete.cases(.))#na.omit() #
-data_for_model <- data_for_model %>% mutate(obs_n = 1:nrow(data_for_model))
-
-
-# ggplot(data_for_model, aes(x= obs_n, y = v_tests_pos_Rhinovirus)) + theme_bw()+  #log(cupr_l1 + 1)
-#   geom_point() + geom_line() + facet_wrap(~NAB_station) + 
-#   geom_point(aes(x=obs_n, y =n_cases), color = "red") +
-#   geom_line(aes(x=obs_n, y =n_cases), color = "red")
-# 
-# ggplot(data_for_model, aes(x= log(cupr + 1), y = n_cases)) + theme_bw()+
-#   geom_point() + geom_smooth(method = "lm")
-# 
-
-#hist(data_for_model$cupr)
-sink("model_a.txt")
-cat("  
-  ### model ########### 
-    model{
-    ## Likelihood
-    for(i in 1:N){
-      y[i] ~ dpois(lambda2[i])
-      lambda2[i] <- lambda1[i] * children_pop[i]
-      
-      log(lambda1[i]) <- 
-      beta[1] * tot_pol_log[i] + 
-      beta[2] * tot_pol_l1_log[i] + 
-      beta[3] * tot_pol_m7_log[i] + 
-      beta[4] * tot_pol_m14_log[i] +
-      
-      alpha[1] * v_tests_pos_Rhinovirus[i] + 
-      alpha[2] * v_tests_pos_RSV[i] + 
-      alpha[3] * v_tests_pos_Corona[i] +
-      alpha[4] * flu_d[i] +
-      
-      #kappa[1] * flu_d[i] +
-      
-      dayweek_effect[dayweek[i]]+
-      city_fe[station[i]]
-    }     
-      
-    ## Priors 
-    
-    for(b in 1:4){beta[b] ~ dnorm(0, 0.0001)}
-    for(a in 1:4){alpha[a] ~ dnorm(0, 0.0001)}
-    for(d in 1:7){dayweek_effect[d] ~ dnorm(0, 0.0001)}
-    kappa ~ dnorm(0, 0.0001)
-    for(c in 1:nstations){city_fe[c] ~ dnorm(0, 0.0001)}
-}
-    ",fill=TRUE)
-sink() 
-
-jags <- jags.model('model_a.txt', 
-                   data = list(
-                     #general stuff
-                     y = as.numeric(data_for_model$n_cases),  # DV
-                     N = nrow(data_for_model),  # sample size
-                     nstations = max(data_for_model$NAB_station_n),
-                     station = data_for_model$NAB_station_n,
-                     children_pop = data_for_model$children_pop,
-                     dayweek = data_for_model$day_week_n,
-                     
-                     #NAB data 
-                     tot_pol_log = log(data_for_model$tot_pol + 1),  # predictors
-                     tot_pol_l1_log = log(data_for_model$tot_pol_l1 + 1),  
-                     tot_pol_l2_log = log(data_for_model$tot_pol_l2 + 1),  # predictors
-                     tot_pol_l3_log = log(data_for_model$tot_pol_l3 + 1),  # predictors
-                     tot_pol_m7_log = log(data_for_model$tot_pol_m7 + 1),  # predictors
-                     tot_pol_m14_log = log(data_for_model$tot_pol_m14 + 1),  # predictors
-                     
-                     #virus data
-                     v_tests_pos_Rhinovirus = as.numeric(data_for_model$v_tests_pos_Rhinovirus),
-                     v_tests_pos_RSV = as.numeric(data_for_model$v_tests_pos_RSV) ,
-                     v_tests_pos_Corona = as.numeric(data_for_model$v_tests_pos_Corona) ,
-                     flu_d = as.numeric(data_for_model$flu_d)
-                     
-                   ),
-                   n.chains = 3,
-                   n.adapt = 1000)  # diffuse priors
-
-#dic <- dic.samples(jags, n.iter = 1000, type = "pD"); print(dic) #model DIC
-#Sys.time()
-update(jags,n.iter= 1000) #update(jags,n.iter=1000) 
-mcmc_samples_params <- coda.samples(jags, variable.names=c("alpha", "beta", "kappa", "city_fe"),  n.iter = 10000, thin = 10) #variables to monitor
-plot(mcmc_samples_params)
-Sys.time() #started at noon
-results_param <- summary(mcmc_samples_params)
-results_params <- data.frame(results_param$statistics, results_param$quantiles) #multi-var model
-results_params$parameter<-row.names(results_params)
-results_params$param<-substr(results_params$parameter,1,2)
-
-filter(results_params, param == "al" | param == "be") %>%
-ggplot(aes(x = parameter, y = Mean, ymax = X97.5., ymin = X2.5.)) + geom_pointrange() + theme_bw() +
-  geom_abline(slope = 0, intercept = 0, lty = 2) +
-  ylab("parameter estimate")
-
-
-jags <- jags.model('model_a.txt',
-                   data = list(
-                     'nobs' = nrow(samples_pred),
-                     'ragp' = as.numeric(samples_pred$ragp),
-                     'year18'= as.numeric(samples_pred$year18),
-                     
-                     #pixel level variables
-                     'class_29_4m_c' = as.numeric(samples_pred$class_29_4m_c),
-                     'class_32_4m_c' = as.numeric(samples_pred$class_32_4m_c),
-                     'class_44_4m_c' = as.numeric(samples_pred$class_44_4m_c),
-                     'class_5_4m_c' = as.numeric(samples_pred$class_5_4m_c),
-                     
-                     'trees' = as.numeric(samples_pred$trees17_4m_de),
-                     'buildings' = as.numeric(samples_pred$build_4m_de),
-                     'ground' = as.numeric(samples_pred$ground_4m_de),
-                     
-                     'demo_16m' = as.numeric(samples_pred$lidardemo16m_4m_de), #as.numeric(samples_pred$lidardemo4m_de2),
-                     'demo_64m' = as.numeric(samples_pred$lidardemo64m_4m_de), #as.numeric(samples_pred$lidardemo4m_de2),
-                     'par_impval_0' = as.numeric(samples_pred$parcel_impval_0),       
-                     'roads' = as.numeric(samples_pred$roads)
-                   ),
-                   n.chains = 3,
-                   n.adapt = 200)
-
-dic <- dic.samples(jags, n.iter = 1000, type = "pD"); print(dic) #model DIC
-#Sys.time()
-update(jags,n.iter= 5000) #update(jags,n.iter=1000) 
-#mcmc_samples_params <- coda.samples(jags, variable.names=c("theta"),  n.iter = 100)
-mcmc_samples_params <- coda.samples(jags, variable.names=c("delta", "beta", "alpha"),  n.iter = 1000, thin = 10) #variables to monitor
-gelman.diag(mcmc_samples_params)
-plot(mcmc_samples_params)  #plot(samples[,'a'])
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-###analysis of all counties with NAB data ##############################################################
-library(forcats)
-names(opa_day)
-levels(opa_day$county_name)
-str(opa_day$county_name)
-as.numeric(ordered(opa_day$county_name))
-data_for_model <- filter(opa_day, !is.na(n_cases)) %>% # == "Harris") %>% !is.na(county_name)) 
-  #filter(p_season == "J. ashei") %>%
-  #mutate(county_n = as.numeric(as.factor(county_name))) %>%
-  dplyr::select(date, n_cases, county_name, PAT_COUNTY, children_pop, pbir_child,
-                cupr, cupr_m7, cupr_l1, cupr_l2, cupr_l3, cupr_m7, cupr_m14, 
-                tot_pol = Total.Pollen.Count,
-                Ambrosia,
-                Quercus,
-                #rhino_child, rhino_child_m7, rhino_child_m14,
-                flu_d, flu_d_m7 #flu_d_m14, 
-                ) %>%
-  arrange(date) %>%
-  na.omit
-data_for_model$county_n <- as.numeric(ordered(data_for_model$county_name)) #for some reason this wasn't working in piping
-data_for_model$obs_n <- 1:nrow(data_for_model)
-
-data_for_model$cupr
-
-ggplot(data_for_model, aes(x= obs_n, y = n_cases)) + theme_bw()+  #log(cupr_l1 + 1)
-  geom_point() + geom_line() + facet_wrap(~county_name) + 
-  geom_point(aes(x=obs_n, y =n_cases), color = "red") +
-  geom_line(aes(x=obs_n, y =n_cases), color = "red")
-
-
-ggplot(data_for_model, aes(x= log(Quercus + 1), y = n_cases)) + theme_bw()+
-  geom_point() + geom_smooth(method = "lm") +facet_wrap(~county_name)
-
-ggplot(data_for_model, aes(x= rhino_child_m7, y = n_cases, color = (cupr_m14 + 1))) + theme_bw()+
-  geom_point() + geom_smooth(method = "lm") + scale_color_viridis_c(trans = "log") + facet_wrap(~county_name)
-
-
-#hist(data_for_model$cupr)
-sink("model_a.txt")
-cat("  
-  ### model ########### 
-    model{
-    ## Likelihood
-    for(i in 1:N){
-      pbir[i] <- y[i]/pop_10k[i]
-      y[i] ~ dpois(lambda[i])
-      log(lambda[i]) <- 
-      alpha[county_j[i]] + 
-      beta_cupr[county_j[i]]/pop_10k[i] * cupr_log[i] + 
-      beta_quer[county_j[i]]/pop_10k[i] * Quercus_log[i] + 
-      beta_ambr[county_j[i]]/pop_10k[i] * Ambrosia_log[i] +
-      beta_flu[county_j[i]]/pop_10k[i] * flu_d[i] 
-      
-          # beta[4] * cupr_l3_log[i] +
-          # beta[5] * cupr_m7_log[i] + 
-          # beta[6] * cupr_m14_log[i] +
-          # 
-          # alpha[1] * flu_d[i]  
-          # # alpha[2] * rhino_child_m7[i] + 
-          # # alpha[3] * rhino_child_m14[i] +
-          # 
-          # 
-          # # kappa[1] * flu_d[i]
-
-    }     
-      
-      #average effect
-      beta_cupr_avg <- (beta_cupr[1] + beta_cupr[2] + beta_cupr[3]+ beta_cupr[4]+ beta_cupr[5]+ beta_cupr[6])/n_counties
-      beta_quer_avg <- (beta_quer[1] + beta_quer[2] + beta_quer[3]+ beta_quer[4]+ beta_quer[5]+ beta_quer[6])/n_counties
-      beta_ambr_avg <- (beta_ambr[1] + beta_ambr[2] + beta_ambr[3]+ beta_ambr[4]+ beta_ambr[5]+ beta_ambr[6])/n_counties
-      beta_flu_avg  <- (beta_flu[1] + beta_flu[2] + beta_flu[3]+ beta_flu[4]+ beta_flu[5]+ beta_flu[6])/n_counties
-      
-      
-      
-    ## Priors 
-    for(a in 1:n_counties){ alpha[a] ~ dnorm(0, 0.0001)}
-    for(b in 1:n_counties){beta_cupr[b] ~ dnorm(0, 0.0001)}
-    for(b in 1:n_counties){beta_quer[b] ~ dnorm(0, 0.0001)}
-    for(b in 1:n_counties){beta_ambr[b] ~ dnorm(0, 0.0001)}
-    for(b in 1:n_counties){beta_flu[b] ~ dnorm(0, 0.0001)}
-    #for(b in 1:4){beta[b] ~ dnorm(0, 0.0001)}
-    # for(a in 1:3){alpha[a] ~ dnorm(0, 0.0001)}
-    # kappa ~ dnorm(0, 0.0001)
-}
-    ",fill=TRUE)
-sink() 
-
-jags <- jags.model('model_a.txt', 
-                   data = list(
-                     
-                     y = as.numeric(data_for_model$n_cases),  # DV
-                     N = nrow(data_for_model),
-                     #county = data_for_model$county_n,
-                     n_counties = length(unique(data_for_model$county_n)),
-                     county_j = data_for_model$county_n,
-                     pop_10k = (data_for_model$children_pop/10000),
-                     
-                     #NAB data for Cupr
-                     cupr_log = log10(data_for_model$cupr + 1),  # predictors
-                     #tot_pol =  log10(data_for_model$tot_pol + 1),  # predictors
-                     Quercus_log =  log10(data_for_model$Quercus + 1),  # predictors
-                     Ambrosia_log =  log10(data_for_model$Ambrosia + 1),  # predictors
-                     # cupr_l1_log = log(data_for_model$cupr_l1 + 1),  
-                     # cupr_l2_log = log(data_for_model$cupr_l2 + 1),  # predictors
-                     # cupr_l3_log = log(data_for_model$cupr_l3 + 1),  # predictors
-                     # cupr_m7_log = log(data_for_model$cupr_m7 + 1),  # predictors
-                     # cupr_m14_log = log(data_for_model$cupr_m14 + 1),  # predictors
-                     
-                     #rhinovirus from Eggleston
-                     # rhino_child = as.numeric(data_for_model$rhino_child),
-                     # rhino_child_m7 = as.numeric(data_for_model$rhino_child_m7) ,
-                     # rhino_child_m14 = as.numeric(data_for_model$rhino_child_m14) ,
-                     flu_d = as.numeric(data_for_model$flu_d) # sample size
-                     #mu.beta=rep(0,2),  # priors centered on 0
-                     #tau.beta=diag(.0001,2))
-                   ),
-                   n.chains = 3,
-                   n.adapt = 1000)  # diffuse priors
-
-#dic <- dic.samples(jags, n.iter = 1000, type = "pD"); print(dic) #model DIC
-#Sys.time()
-update(jags,n.iter= 1000) #update(jags,n.iter=1000) 
-mcmc_samples_params <- coda.samples(jags, variable.names=c("alpha", "beta_cupr", "beta_quer","beta_ambr", "beta_flu",
-                                                           "beta_cupr_avg", "beta_quer_avg", "beta_ambr_avg", "beta_flu_avg"),  
-                                    n.iter = 1000, thin = 10) #variables to monitor
-plot(mcmc_samples_params)
-results_param <- summary(mcmc_samples_params)
-results_params <- data.frame(results_param$statistics, results_param$quantiles) #multi-var model
-results_params$parameter<-row.names(results_params)
-results_params$param<-substr(results_params$parameter,1,2)
-
-
-
-mcmc_samples_params_pbir <- coda.samples(jags, variable.names=c("pbir"),  
-                                    n.iter = 1000, thin = 10) #variables to monitor
-#plot(mcmc_samples_params)
-results_param_pbir <- summary(mcmc_samples_params_pbir)
-results_params_pbir <- data.frame(results_param_pbir$statistics, results_param_pbir$quantiles) #multi-var model
-results_params_pbir$parameter<-row.names(results_params_pbir)
-results_params_pbir$param<-substr(results_params_pbir$parameter,1,2)
-
-results <- data_for_model
-results$pbir_calc_mean <- results_params_pbir$Mean
-
-ggplot(results, aes(x= county_name, y = pbir_calc_mean)) + geom_boxplot()
-
-names(opa_day)
-opa_day %>%
-  group_by(county_name) %>%
-  summarize(pbir_child_mean = mean(pbir_child)) # = sum(n_cases)/())
-
-
-
-
-#### analysis of a single station with a distributed lags model using dlm package #######################################
+#### analysis with a distributed lags model using dlnm package #######################################
 library(dlnm)
 library(splines)
 library(dplyr)
@@ -1526,6 +913,7 @@ data_for_model <- opa_day %>%
     n_cases_s = scale(n_cases),
     log_child_pop = log(children_pop),
     child_pop = children_pop,
+    log_adult_pop = log(adult_pop),
     NAB_station_n = as.numeric(as.factor(NAB_station)),
     flu_ds = as.numeric(scale(flu_d)),
     ja_l = log10(ja + 1), #mean(log(opa_day$ja + 1), na.rm = TRUE) #mean(opa_day$ja_rfint_log_mean, na.rm = TRUE)
@@ -1558,7 +946,7 @@ data_for_model <- opa_day %>%
     met_tavg_s = scale(met_tmaxdegc + met_tmindegc),
     met_vpPa_s = scale(met_vpPa)
   ) %>%
-  dplyr::select(NAB_station, date, n_cases, n_cases_s, pbir, child_pop, log_child_pop,
+  dplyr::select(NAB_station, date, n_cases, n_cases_s, pbir, child_pop, log_child_pop, adult_pop, log_adult_pop,
                 week_day,
                 ja_lm, #ja_rfint_log_mean, ja_l,
                 cup_other_lm, #cup_other_lms,
@@ -2024,4 +1412,604 @@ results_param <- summary(mcmc_samples_params)
 results_params <- data.frame(results_param$statistics, results_param$quantiles) #multi-var model
 results_params$parameter<-row.names(results_params)
 results_params$param<-substr(results_params$parameter,1,2)
+
+
+
+# ### Google Trends, pollen seasons, and other unused data ###########################################################################
+# ### daily google searches for "pollen" from Dallas, San Antonio, and Houston:
+# g_pollen_Dallas <- read.csv("C:/Users/dsk856/Desktop/misc_data/google_trends_Dallas_FtWorth_pollen_daily_2004_2019.csv")  %>% mutate(MSA = "Dallas-Fort Worth-Arlington")
+# g_pollen_Houston <- read.csv("C:/Users/dsk856/Desktop/misc_data/google_trends_Houston_pollen_daily_2004_2019.csv") %>% mutate(MSA = "Houston-The Woodlands-Sugar Land")
+# g_pollen_SanAntonio <- read.csv("C:/Users/dsk856/Desktop/misc_data/google_trends_SanAntonio_pollen_daily_2004_2019.csv") %>% mutate(MSA = "San Antonio-New Braunfels")
+# g_pollen_Austin <- read.csv("C:/Users/dsk856/Desktop/misc_data/google_trends_Austin_pollen_daily_2004_2019.csv") %>% mutate(MSA = "Austin-Round Rock")
+# 
+# g_pollen <- bind_rows(g_pollen_Dallas, g_pollen_Houston, g_pollen_SanAntonio, g_pollen_Austin)
+# g_pollen_join <- mutate(g_pollen, date = ymd(date),
+#                         hits_day_adj_pollen = hits_day_adj) %>% select(date, hits_day_adj_pollen, MSA)
+# opa_day <-   left_join(opa_day, g_pollen_join, by =c("date", "MSA")) 
+# 
+# ## more google trends data for "colds"
+# #unique(opa_day$MSA)
+# cold_dallas <- read_csv("C:/Users/dsk856/Desktop/misc_data/google_trends_Dallas_cold_daily_2004_2019.csv")
+# cold_dallas <- dplyr::select(cold_dallas, date, gtrend_cold = hits_day_adj) %>%
+#                 mutate(MSA = "Dallas-Fort Worth-Arlington")
+# 
+# common_cold_dallas <- read_csv("C:/Users/dsk856/Desktop/misc_data/google_trends_Dallas_common cold_daily_2004_2019.csv")
+# common_cold_dallas <- dplyr::select(common_cold_dallas, date, gtrend_common_cold = hits_day_adj) %>%
+#   mutate(MSA = "Dallas-Fort Worth-Arlington")
+# 
+# cold_sanant <- read_csv("C:/Users/dsk856/Desktop/misc_data/google_trends_SanAntoniocold_daily_2004_2019.csv")
+# cold_sanant <- dplyr::select(cold_sanant, date, gtrend_cold = hits_day_adj) %>%
+#   mutate(MSA = "San Antonio-New Braunfels")
+# 
+# common_cold_sanant <- read_csv("C:/Users/dsk856/Desktop/misc_data/google_trends_SanAntoniocommon cold_daily_2004_2019.csv")
+# common_cold_sanant <- dplyr::select(common_cold_sanant, date, gtrend_common_cold = hits_day_adj) %>%
+#   mutate(MSA = "San Antonio-New Braunfels")
+# 
+# gtrends_cold <- bind_rows(cold_dallas, cold_sanant)
+# gtrends_common_cold <- bind_rows(common_cold_dallas, common_cold_sanant)
+# 
+# 
+# opa_day <- left_join(opa_day, gtrends_cold)
+# opa_day <- left_join(opa_day, gtrends_common_cold)
+#
+# #load in daily rhinovirus data
+# colds <- read.csv("C:/Users/dsk856/Desktop/misc_data/rhino_daily_from_Eggo_191111.csv")
+# colds <- mutate(colds, date = ymd(date_vector)) %>% select(date, rhino_child, rhino_adult)
+# opa_day <- left_join(opa_day, colds)
+#   
+# #define pollen seasons based on general airborne pollen trends from NAB; see graph produced from "TX_NAB_googletrends190917.R"
+# opa_day$p_season <- "none"
+# opa_day$p_season[opa_day$doy > 349 | opa_day$doy < 31] <- "J. ashei"
+# opa_day$p_season[opa_day$doy > 85 & opa_day$doy < 115] <- "spring trees"
+# opa_day$p_season[opa_day$doy > 250 & opa_day$doy < 292] <- "ragweed"
+# 
+# 
+# #define pollen seasons based on google searches for 'pollen' 
+# opa_day$g_season <- "none"
+# #Juas
+# opa_day$g_season[opa_day$date > ymd("2015-12-11") & opa_day$date < ymd("2016-02-05")] <- "J. ashei"
+# opa_day$g_season[opa_day$date > ymd("2016-12-25") & opa_day$date < ymd("2017-01-25")] <- "J. ashei"
+# #didn't catch it at the end of Dec 2017
+# 
+# #spring trees
+# opa_day$g_season[opa_day$date > ymd("2016-03-01") & opa_day$date < ymd("2016-04-30")] <- "spring trees"
+# opa_day$g_season[opa_day$date > ymd("2017-03-01") & opa_day$date < ymd("2017-04-30")] <- "spring trees"
+# 
+# #ragweed
+# opa_day$g_season[opa_day$date > ymd("2015-09-10") & opa_day$date < ymd("2015-11-01")] <- "ragweed"
+# opa_day$g_season[opa_day$date > ymd("2016-09-15") & opa_day$date < ymd("2016-10-25")] <- "ragweed"
+# opa_day$g_season[opa_day$date > ymd("2017-09-10") & opa_day$date < ymd("2017-11-01")] <- "ragweed"
+# 
+# 
+# #define flu season based on CDC data in Texas
+# #install.packages("cdcdfluview")
+# #manually snagging general flu season definitions from TX for right now.  2017 is way higher than 2016 for flu.  Not sure how well this represents Austin
+# opa_day$flu <- "none"
+# opa_day$flu[opa_day$date > ymd("2016-02-14") & opa_day$date < ymd("2016-04-24")] <- "flu"
+# opa_day$flu[opa_day$date > ymd("2017-01-07") & opa_day$date < ymd("2017-04-01")] <- "flu"
+# 
+# #define cold season based on Ego et al. 2016 paper, fig. 2.  Cut off dates are just eye-balled
+# #based on Eggo et al. 2016, just choosing semi-arbitrary cut off date based on Fig 2: Aug 25 - Sep 20
+# opa_day$cold <- "none"
+# opa_day$cold[opa_day$doy > 237 & opa_day$doy < 263] <- "cold"
+
+
+
+### analysis of a single NAB station ##############################################################
+#assemble Williamson County data
+names(opa_day)
+unique(opa_day$NAB_station)
+data_for_model <- opa_day %>%
+  filter(NAB_station == "San Antonio A") %>% # == "Harris") %>% !is.na(county_name)) 
+  #filter(p_season == "J. ashei") %>%
+  dplyr::select(date, n_cases, 
+                week_day,
+                tot_pol, tot_pol_l1, tot_pol_l2, tot_pol_l3, tot_pol_m7, tot_pol_m14,
+                #cupr, cupr_l1, cupr_l2, cupr_l3, cupr_m7, cupr_m14, 
+                v_tests_pos_Rhinovirus,
+                v_tests_pos_RSV,
+                v_tests_pos_Corona,
+                flu_d, flu_d_m7, flu_d_m14, NAB_station) %>%
+  arrange(date) %>%
+  mutate(NAB_station_n = as.numeric(as.factor(NAB_station)))  %>%
+  filter(complete.cases(.))
+data_for_model <- data_for_model %>% mutate(obs_n = 1:nrow(data_for_model))
+
+
+# ggplot(data_for_model, aes(x= obs_n, y = v_tests_pos_Rhinovirus)) + theme_bw()+  #log(cupr_l1 + 1)
+#   geom_point() + geom_line() + facet_wrap(~NAB_station) + 
+#   geom_point(aes(x=obs_n, y =n_cases), color = "red") +
+#   geom_line(aes(x=obs_n, y =n_cases), color = "red")
+# 
+# ggplot(data_for_model, aes(x= log(cupr + 1), y = n_cases)) + theme_bw()+
+#   geom_point() + geom_smooth(method = "lm")
+# 
+
+#hist(data_for_model$cupr)
+sink("model_a.txt")
+cat("  
+  ### model #
+    model{
+    ## Likelihood
+    for(i in 1:N){
+      y[i] ~ dpois(lambda[i])
+      log(lambda[i]) <- beta0 + 
+      beta[1] * tot_pol_log[i] + 
+      beta[2] * tot_pol_l1_log[i] + 
+      beta[3] * tot_pol_m7_log[i] + 
+      beta[4] * tot_pol_m14_log[i] +
+      
+      alpha[1] * v_tests_pos_Rhinovirus[i] + 
+      alpha[2] * v_tests_pos_RSV[i] + 
+      alpha[3] * v_tests_pos_Corona[i] +
+      
+      kappa[1] * flu_d[i]
+    }     
+      
+    ## Priors 
+    beta0 ~ dnorm(0, 0.0001) 
+    for(b in 1:4){beta[b] ~ dnorm(0, 0.0001)}
+    for(a in 1:3){alpha[a] ~ dnorm(0, 0.0001)}
+    kappa ~ dnorm(0, 0.0001)
+}
+    ",fill=TRUE)
+sink() 
+
+jags <- jags.model('model_a.txt', 
+                   data = list(
+                     #general stuff
+                     y = as.numeric(data_for_model$n_cases),  # DV
+                     N = nrow(data_for_model),  # sample size
+                     
+                     #NAB data 
+                     tot_pol_log = log(data_for_model$tot_pol + 1),  # predictors
+                     tot_pol_l1_log = log(data_for_model$tot_pol_l1 + 1),  
+                     tot_pol_l2_log = log(data_for_model$tot_pol_l2 + 1),  # predictors
+                     tot_pol_l3_log = log(data_for_model$tot_pol_l3 + 1),  # predictors
+                     tot_pol_m7_log = log(data_for_model$tot_pol_m7 + 1),  # predictors
+                     tot_pol_m14_log = log(data_for_model$tot_pol_m14 + 1),  # predictors
+                     
+                     #virus data
+                     v_tests_pos_Rhinovirus = as.numeric(data_for_model$v_tests_pos_Rhinovirus),
+                     v_tests_pos_RSV = as.numeric(data_for_model$v_tests_pos_RSV) ,
+                     v_tests_pos_Corona = as.numeric(data_for_model$v_tests_pos_Corona) ,
+                     flu_d = as.numeric(data_for_model$flu_d)
+                     
+                   ),
+                   n.chains = 3,
+                   n.adapt = 1000)  # diffuse priors
+
+#dic <- dic.samples(jags, n.iter = 1000, type = "pD"); print(dic) #model DIC
+#Sys.time()
+update(jags,n.iter= 1000) #update(jags,n.iter=1000) 
+mcmc_samples_params <- coda.samples(jags, variable.names=c("alpha", "beta", "kappa"),  n.iter = 1000, thin = 10) #variables to monitor
+plot(mcmc_samples_params)
+results_param <- summary(mcmc_samples_params)
+results_params <- data.frame(results_param$statistics, results_param$quantiles) #multi-var model
+results_params$parameter<-row.names(results_params)
+results_params$param<-substr(results_params$parameter,1,2)
+
+
+### analysis of all NAB stations ##############################################################
+#assemble Williamson County data
+names(opa_day)
+unique(opa_day$NAB_station)
+data_for_model <- opa_day %>%
+  ungroup()%>%
+  #filter(NAB_station == "San Antonio A") %>% # == "Harris") %>% !is.na(county_name)) 
+  #filter(p_season == "J. ashei") %>%
+  dplyr::select(date, n_cases, 
+                children_pop,
+                week_day,
+                tot_pol, tot_pol_l1, tot_pol_l2, tot_pol_l3, tot_pol_m7, tot_pol_m14,
+                #cupr, cupr_l1, cupr_l2, cupr_l3, cupr_m7, cupr_m14, 
+                v_tests_pos_Rhinovirus,
+                v_tests_pos_RSV,
+                v_tests_pos_Corona,
+                flu_d, flu_d_m7, flu_d_m14, NAB_station) %>%
+  arrange(date) %>%
+  mutate(NAB_station_n = as.numeric(as.factor(NAB_station)),
+         day_week_n = as.numeric(as.factor(week_day)))  %>%
+  filter(complete.cases(.))#na.omit() #
+data_for_model <- data_for_model %>% mutate(obs_n = 1:nrow(data_for_model))
+
+
+# ggplot(data_for_model, aes(x= obs_n, y = v_tests_pos_Rhinovirus)) + theme_bw()+  #log(cupr_l1 + 1)
+#   geom_point() + geom_line() + facet_wrap(~NAB_station) + 
+#   geom_point(aes(x=obs_n, y =n_cases), color = "red") +
+#   geom_line(aes(x=obs_n, y =n_cases), color = "red")
+# 
+# ggplot(data_for_model, aes(x= log(cupr + 1), y = n_cases)) + theme_bw()+
+#   geom_point() + geom_smooth(method = "lm")
+# 
+
+#hist(data_for_model$cupr)
+sink("model_a.txt")
+cat("  
+  ### model ########### 
+    model{
+    ## Likelihood
+    for(i in 1:N){
+      y[i] ~ dpois(lambda2[i])
+      lambda2[i] <- lambda1[i] * children_pop[i]
+      
+      log(lambda1[i]) <- 
+      beta[1] * tot_pol_log[i] + 
+      beta[2] * tot_pol_l1_log[i] + 
+      beta[3] * tot_pol_m7_log[i] + 
+      beta[4] * tot_pol_m14_log[i] +
+      
+      alpha[1] * v_tests_pos_Rhinovirus[i] + 
+      alpha[2] * v_tests_pos_RSV[i] + 
+      alpha[3] * v_tests_pos_Corona[i] +
+      alpha[4] * flu_d[i] +
+      
+      #kappa[1] * flu_d[i] +
+      
+      dayweek_effect[dayweek[i]]+
+      city_fe[station[i]]
+    }     
+      
+    ## Priors 
+    
+    for(b in 1:4){beta[b] ~ dnorm(0, 0.0001)}
+    for(a in 1:4){alpha[a] ~ dnorm(0, 0.0001)}
+    for(d in 1:7){dayweek_effect[d] ~ dnorm(0, 0.0001)}
+    kappa ~ dnorm(0, 0.0001)
+    for(c in 1:nstations){city_fe[c] ~ dnorm(0, 0.0001)}
+}
+    ",fill=TRUE)
+sink() 
+
+jags <- jags.model('model_a.txt', 
+                   data = list(
+                     #general stuff
+                     y = as.numeric(data_for_model$n_cases),  # DV
+                     N = nrow(data_for_model),  # sample size
+                     nstations = max(data_for_model$NAB_station_n),
+                     station = data_for_model$NAB_station_n,
+                     children_pop = data_for_model$children_pop,
+                     dayweek = data_for_model$day_week_n,
+                     
+                     #NAB data 
+                     tot_pol_log = log(data_for_model$tot_pol + 1),  # predictors
+                     tot_pol_l1_log = log(data_for_model$tot_pol_l1 + 1),  
+                     tot_pol_l2_log = log(data_for_model$tot_pol_l2 + 1),  # predictors
+                     tot_pol_l3_log = log(data_for_model$tot_pol_l3 + 1),  # predictors
+                     tot_pol_m7_log = log(data_for_model$tot_pol_m7 + 1),  # predictors
+                     tot_pol_m14_log = log(data_for_model$tot_pol_m14 + 1),  # predictors
+                     
+                     #virus data
+                     v_tests_pos_Rhinovirus = as.numeric(data_for_model$v_tests_pos_Rhinovirus),
+                     v_tests_pos_RSV = as.numeric(data_for_model$v_tests_pos_RSV) ,
+                     v_tests_pos_Corona = as.numeric(data_for_model$v_tests_pos_Corona) ,
+                     flu_d = as.numeric(data_for_model$flu_d)
+                     
+                   ),
+                   n.chains = 3,
+                   n.adapt = 1000)  # diffuse priors
+
+#dic <- dic.samples(jags, n.iter = 1000, type = "pD"); print(dic) #model DIC
+#Sys.time()
+update(jags,n.iter= 1000) #update(jags,n.iter=1000) 
+mcmc_samples_params <- coda.samples(jags, variable.names=c("alpha", "beta", "kappa", "city_fe"),  n.iter = 10000, thin = 10) #variables to monitor
+plot(mcmc_samples_params)
+Sys.time() #started at noon
+results_param <- summary(mcmc_samples_params)
+results_params <- data.frame(results_param$statistics, results_param$quantiles) #multi-var model
+results_params$parameter<-row.names(results_params)
+results_params$param<-substr(results_params$parameter,1,2)
+
+filter(results_params, param == "al" | param == "be") %>%
+  ggplot(aes(x = parameter, y = Mean, ymax = X97.5., ymin = X2.5.)) + geom_pointrange() + theme_bw() +
+  geom_abline(slope = 0, intercept = 0, lty = 2) +
+  ylab("parameter estimate")
+
+
+jags <- jags.model('model_a.txt',
+                   data = list(
+                     'nobs' = nrow(samples_pred),
+                     'ragp' = as.numeric(samples_pred$ragp),
+                     'year18'= as.numeric(samples_pred$year18),
+                     
+                     #pixel level variables
+                     'class_29_4m_c' = as.numeric(samples_pred$class_29_4m_c),
+                     'class_32_4m_c' = as.numeric(samples_pred$class_32_4m_c),
+                     'class_44_4m_c' = as.numeric(samples_pred$class_44_4m_c),
+                     'class_5_4m_c' = as.numeric(samples_pred$class_5_4m_c),
+                     
+                     'trees' = as.numeric(samples_pred$trees17_4m_de),
+                     'buildings' = as.numeric(samples_pred$build_4m_de),
+                     'ground' = as.numeric(samples_pred$ground_4m_de),
+                     
+                     'demo_16m' = as.numeric(samples_pred$lidardemo16m_4m_de), #as.numeric(samples_pred$lidardemo4m_de2),
+                     'demo_64m' = as.numeric(samples_pred$lidardemo64m_4m_de), #as.numeric(samples_pred$lidardemo4m_de2),
+                     'par_impval_0' = as.numeric(samples_pred$parcel_impval_0),       
+                     'roads' = as.numeric(samples_pred$roads)
+                   ),
+                   n.chains = 3,
+                   n.adapt = 200)
+
+dic <- dic.samples(jags, n.iter = 1000, type = "pD"); print(dic) #model DIC
+#Sys.time()
+update(jags,n.iter= 5000) #update(jags,n.iter=1000) 
+#mcmc_samples_params <- coda.samples(jags, variable.names=c("theta"),  n.iter = 100)
+mcmc_samples_params <- coda.samples(jags, variable.names=c("delta", "beta", "alpha"),  n.iter = 1000, thin = 10) #variables to monitor
+gelman.diag(mcmc_samples_params)
+plot(mcmc_samples_params)  #plot(samples[,'a'])
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+###analysis of all counties with NAB data ##############################################################
+library(forcats)
+names(opa_day)
+levels(opa_day$county_name)
+str(opa_day$county_name)
+as.numeric(ordered(opa_day$county_name))
+data_for_model <- filter(opa_day, !is.na(n_cases)) %>% # == "Harris") %>% !is.na(county_name)) 
+  #filter(p_season == "J. ashei") %>%
+  #mutate(county_n = as.numeric(as.factor(county_name))) %>%
+  dplyr::select(date, n_cases, county_name, PAT_COUNTY, children_pop, pbir_child,
+                cupr, cupr_m7, cupr_l1, cupr_l2, cupr_l3, cupr_m7, cupr_m14, 
+                tot_pol = Total.Pollen.Count,
+                Ambrosia,
+                Quercus,
+                #rhino_child, rhino_child_m7, rhino_child_m14,
+                flu_d, flu_d_m7 #flu_d_m14, 
+  ) %>%
+  arrange(date) %>%
+  na.omit
+data_for_model$county_n <- as.numeric(ordered(data_for_model$county_name)) #for some reason this wasn't working in piping
+data_for_model$obs_n <- 1:nrow(data_for_model)
+
+data_for_model$cupr
+
+ggplot(data_for_model, aes(x= obs_n, y = n_cases)) + theme_bw()+  #log(cupr_l1 + 1)
+  geom_point() + geom_line() + facet_wrap(~county_name) + 
+  geom_point(aes(x=obs_n, y =n_cases), color = "red") +
+  geom_line(aes(x=obs_n, y =n_cases), color = "red")
+
+
+ggplot(data_for_model, aes(x= log(Quercus + 1), y = n_cases)) + theme_bw()+
+  geom_point() + geom_smooth(method = "lm") +facet_wrap(~county_name)
+
+ggplot(data_for_model, aes(x= rhino_child_m7, y = n_cases, color = (cupr_m14 + 1))) + theme_bw()+
+  geom_point() + geom_smooth(method = "lm") + scale_color_viridis_c(trans = "log") + facet_wrap(~county_name)
+
+
+#hist(data_for_model$cupr)
+sink("model_a.txt")
+cat("  
+  ### model ########### 
+    model{
+    ## Likelihood
+    for(i in 1:N){
+      pbir[i] <- y[i]/pop_10k[i]
+      y[i] ~ dpois(lambda[i])
+      log(lambda[i]) <- 
+      alpha[county_j[i]] + 
+      beta_cupr[county_j[i]]/pop_10k[i] * cupr_log[i] + 
+      beta_quer[county_j[i]]/pop_10k[i] * Quercus_log[i] + 
+      beta_ambr[county_j[i]]/pop_10k[i] * Ambrosia_log[i] +
+      beta_flu[county_j[i]]/pop_10k[i] * flu_d[i] 
+      
+          # beta[4] * cupr_l3_log[i] +
+          # beta[5] * cupr_m7_log[i] + 
+          # beta[6] * cupr_m14_log[i] +
+          # 
+          # alpha[1] * flu_d[i]  
+          # # alpha[2] * rhino_child_m7[i] + 
+          # # alpha[3] * rhino_child_m14[i] +
+          # 
+          # 
+          # # kappa[1] * flu_d[i]
+
+    }     
+      
+      #average effect
+      beta_cupr_avg <- (beta_cupr[1] + beta_cupr[2] + beta_cupr[3]+ beta_cupr[4]+ beta_cupr[5]+ beta_cupr[6])/n_counties
+      beta_quer_avg <- (beta_quer[1] + beta_quer[2] + beta_quer[3]+ beta_quer[4]+ beta_quer[5]+ beta_quer[6])/n_counties
+      beta_ambr_avg <- (beta_ambr[1] + beta_ambr[2] + beta_ambr[3]+ beta_ambr[4]+ beta_ambr[5]+ beta_ambr[6])/n_counties
+      beta_flu_avg  <- (beta_flu[1] + beta_flu[2] + beta_flu[3]+ beta_flu[4]+ beta_flu[5]+ beta_flu[6])/n_counties
+      
+      
+      
+    ## Priors 
+    for(a in 1:n_counties){ alpha[a] ~ dnorm(0, 0.0001)}
+    for(b in 1:n_counties){beta_cupr[b] ~ dnorm(0, 0.0001)}
+    for(b in 1:n_counties){beta_quer[b] ~ dnorm(0, 0.0001)}
+    for(b in 1:n_counties){beta_ambr[b] ~ dnorm(0, 0.0001)}
+    for(b in 1:n_counties){beta_flu[b] ~ dnorm(0, 0.0001)}
+    #for(b in 1:4){beta[b] ~ dnorm(0, 0.0001)}
+    # for(a in 1:3){alpha[a] ~ dnorm(0, 0.0001)}
+    # kappa ~ dnorm(0, 0.0001)
+}
+    ",fill=TRUE)
+sink() 
+
+jags <- jags.model('model_a.txt', 
+                   data = list(
+                     
+                     y = as.numeric(data_for_model$n_cases),  # DV
+                     N = nrow(data_for_model),
+                     #county = data_for_model$county_n,
+                     n_counties = length(unique(data_for_model$county_n)),
+                     county_j = data_for_model$county_n,
+                     pop_10k = (data_for_model$children_pop/10000),
+                     
+                     #NAB data for Cupr
+                     cupr_log = log10(data_for_model$cupr + 1),  # predictors
+                     #tot_pol =  log10(data_for_model$tot_pol + 1),  # predictors
+                     Quercus_log =  log10(data_for_model$Quercus + 1),  # predictors
+                     Ambrosia_log =  log10(data_for_model$Ambrosia + 1),  # predictors
+                     # cupr_l1_log = log(data_for_model$cupr_l1 + 1),  
+                     # cupr_l2_log = log(data_for_model$cupr_l2 + 1),  # predictors
+                     # cupr_l3_log = log(data_for_model$cupr_l3 + 1),  # predictors
+                     # cupr_m7_log = log(data_for_model$cupr_m7 + 1),  # predictors
+                     # cupr_m14_log = log(data_for_model$cupr_m14 + 1),  # predictors
+                     
+                     #rhinovirus from Eggleston
+                     # rhino_child = as.numeric(data_for_model$rhino_child),
+                     # rhino_child_m7 = as.numeric(data_for_model$rhino_child_m7) ,
+                     # rhino_child_m14 = as.numeric(data_for_model$rhino_child_m14) ,
+                     flu_d = as.numeric(data_for_model$flu_d) # sample size
+                     #mu.beta=rep(0,2),  # priors centered on 0
+                     #tau.beta=diag(.0001,2))
+                   ),
+                   n.chains = 3,
+                   n.adapt = 1000)  # diffuse priors
+
+#dic <- dic.samples(jags, n.iter = 1000, type = "pD"); print(dic) #model DIC
+#Sys.time()
+update(jags,n.iter= 1000) #update(jags,n.iter=1000) 
+mcmc_samples_params <- coda.samples(jags, variable.names=c("alpha", "beta_cupr", "beta_quer","beta_ambr", "beta_flu",
+                                                           "beta_cupr_avg", "beta_quer_avg", "beta_ambr_avg", "beta_flu_avg"),  
+                                    n.iter = 1000, thin = 10) #variables to monitor
+plot(mcmc_samples_params)
+results_param <- summary(mcmc_samples_params)
+results_params <- data.frame(results_param$statistics, results_param$quantiles) #multi-var model
+results_params$parameter<-row.names(results_params)
+results_params$param<-substr(results_params$parameter,1,2)
+
+
+
+mcmc_samples_params_pbir <- coda.samples(jags, variable.names=c("pbir"),  
+                                         n.iter = 1000, thin = 10) #variables to monitor
+#plot(mcmc_samples_params)
+results_param_pbir <- summary(mcmc_samples_params_pbir)
+results_params_pbir <- data.frame(results_param_pbir$statistics, results_param_pbir$quantiles) #multi-var model
+results_params_pbir$parameter<-row.names(results_params_pbir)
+results_params_pbir$param<-substr(results_params_pbir$parameter,1,2)
+
+results <- data_for_model
+results$pbir_calc_mean <- results_params_pbir$Mean
+
+ggplot(results, aes(x= county_name, y = pbir_calc_mean)) + geom_boxplot()
+
+names(opa_day)
+opa_day %>%
+  group_by(county_name) %>%
+  summarize(pbir_child_mean = mean(pbir_child)) # = sum(n_cases)/())
+
+
+### a toy model for initial Poisson regression analysis ####################################################################
+# #construct some toy data to make sure everything is working
+# N <- 1000
+# beta0 <- 1  # intercept
+# beta1 <- 1  # slope
+# x <- rnorm(n=N)  # standard Normal predictor
+# mu <- beta0*1 + beta1*x  # linear predictor function
+# lambda <- exp(mu)  # CEF
+# y <- rpois(n=N, lambda=lambda)  # Poisson DV
+# dat <- data.frame(x,y)  
+# 
+# 
+# sink("model_a.txt")
+# cat("  
+#   ### model ##
+#     model{
+#     ## Likelihood
+#     for(i in 1:N){
+#       y[i] ~ dpois(lambda[i])
+#       log(lambda[i]) <- beta0 + beta1 * x[i]
+#     }     
+#       
+#     ## Priors 
+#     beta0 ~dnorm(0, 0.0001) 
+#     beta1 ~ dnorm(0, 0.0001)
+# }
+#     ",fill=TRUE)
+# sink() 
+# 
+# jags <- jags.model('model_a.txt', 
+#                    data = list(
+#                     x= dat$x,  # predictors
+#                     y= dat$y,  # DV
+#                     N=N  # sample size
+#                     #mu.beta=rep(0,2),  # priors centered on 0
+#                     #tau.beta=diag(.0001,2))
+#                     ),
+#                 n.chains = 3,
+#                 n.adapt = 1000)  # diffuse priors
+# 
+# dic <- dic.samples(jags, n.iter = 1000, type = "pD"); print(dic) #model DIC
+# #Sys.time()
+# update(jags,n.iter= 500) #update(jags,n.iter=1000) 
+# mcmc_samples_params <- coda.samples(jags, variable.names=c("beta1"),  n.iter = 1000, thin = 10) #variables to monitor
+# plot(mcmc_samples_params)
+
+# 
+# ### some preliminary analysis #####################################################################
+# head(opa_day) #unique(opa_day$county_name) #unique(opa_day$NAB_station)
+# names(opa_day)
+# test <- filter(opa_day, NAB_station == "San Antonio A" | NAB_station == "San Antonio B" ) #,  doy > 350 | doy < 50)
+# #test <- opa_day
+# fit <- glm(n_cases ~  
+#              log10(tot_pol_m21 - cupr_m21 + 1) + 
+#              #log10(cupr + 1) +
+#              log10(cupr_m21 + 1)  +
+#              v_tests_pos_RSV + v_tests_pos_Rhinovirus + v_tests_pos_Corona 
+#            , data = test, family = "poisson")
+# 
+# summary(fit)
+# 
+# data_for_model <- filter(opa_day, !is.na(n_cases)) %>% 
+#   dplyr::select(date, n_cases, county_name, PAT_COUNTY, children_pop, pbir_child,
+#                 cupr, cupr_m7, cupr_l1, cupr_l2, cupr_l3, cupr_m7, cupr_m14, 
+#                 tot_pol = Total.Pollen.Count,
+#                 Ambrosia,
+#                 Quercus,
+#                 #rhino_child, rhino_child_m7, rhino_child_m14,
+#                 flu_d, flu_d_m7 #flu_d_m14, 
+#   ) %>%
+#   arrange(date) %>%
+#   na.omit
+# data_for_model$county_n <- as.numeric(ordered(data_for_model$county_name)) #for some reason this wasn't working in piping
+# data_for_model$obs_n <- 1:nrow(data_for_model)
+# 
+# 
+# 
+# names(data_for_model)
+# fit <- glm((pbir_child + 0.001) ~  cupr + #* county_name +
+#              Ambrosia + # *county_name + 
+#              Quercus  +#* county_name + 
+#              flu_d  +
+#              county_name, #* county_name, 
+#            data = data_for_model, family = Gamma(link = "log"))
+# summary(fit)
+# 
+# fit <- glm(log(pbir_child + 0.001) ~  cupr +  #* county_name +
+#              Ambrosia + # *county_name + 
+#              Quercus  +#* county_name + 
+#              flu_d  +
+#              county_name, #* county_name, 
+#            data = opa_day, family = "gaussian")
+# summary(fit)
+# hist((opa_day$pbir_child))
+# 
+# par(mfrow=c(1,1))
+# hist(log(opa_day$pbir_child))
+# t.test(opa_day$pbir_py[opa_day$p_season == "J. ashei"], opa_day$pbir_py[opa_day$flu == "flu"])
+# t.test(opa_day$pbir_py[opa_day$p_season == "J. ashei"], opa_day$pbir_py[opa_day$cold == "cold"])
+# t.test(opa_day$pbir_py[opa_day$p_season == "spring trees"], opa_day$pbir_py[opa_day$flu == "flu"])
+# t.test(opa_day$pbir_py[opa_day$p_season == "spring trees"], opa_day$pbir_py[opa_day$cold == "cold"])
+# t.test(opa_day$pbir_py[opa_day$p_season == "J. ashei"], opa_day$pbir_py[opa_day$p_season == "spring trees"])
+# 
+# opa_day %>% group_by(county_name) %>%
+#   summarize(oak = mean(Quercus),
+#             rag = mean(Ambrosia),
+#             cupr = mean(cupr))
+# t.test(opa_day$cupr[opa_day$county_name == "Bexar"], opa_day$cupr[opa_day$county_name == "Dallas"])
 
