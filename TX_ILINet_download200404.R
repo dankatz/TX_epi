@@ -509,14 +509,157 @@ ggplot(virus_2017_2018b, aes(x = week_midpoint, y = tests_percent_positive, colo
 
 write.csv(virus_2017_2018b, "C:/Users/dsk856/Box/texas/preliminary_epi/virus/virus_2017_2018.csv", row.names = FALSE)
 
+# library(readr)
+# virus_2015_2016b <- read_csv("C:/Users/dsk856/Box/texas/preliminary_epi/virus/virus_2015_2016.csv")
+# virus_2016_2017b <- read_csv("C:/Users/dsk856/Box/texas/preliminary_epi/virus/virus_2016_2017.csv")
+# virus_2017_2018b <- read_csv("C:/Users/dsk856/Box/texas/preliminary_epi/virus/virus_2017_2018.csv")
+
+# manually entering the one week from end of september 2015
+#https://www.dshs.state.tx.us/WorkArea/linkit.aspx?LinkIdentifier=id&ItemID=8589992119
+virus_2015_oct <- read_csv("C:/Users/dsk856/Box/texas/preliminary_epi/virus/virus_2015_sept_oct.csv") %>%
+  mutate(week_start_date = mdy(week_start_date),
+         week_end_date = mdy(week_end_date),
+         week_midpoint = mdy(week_midpoint))
+virus_2015_oct
+
+
 #combine all the different years that I've downloaded
-virus_2015_2017 <- bind_rows(virus_2015_2016b, virus_2016_2017b, virus_2017_2018b) %>%
-                    mutate(virus = recode(virus, "Parainfluenza virus" = "Parainfluenza"))
+unique(virus_2015_oct$virus)
+virus_2015_2017 <- bind_rows(virus_2015_oct, virus_2015_2016b, virus_2016_2017b, virus_2017_2018b) %>%
+                    mutate(virus = recode(virus, "Parainfluenza virus" = "Parainfluenza"),
+                           virus = recode(virus, "Adenovirus (respiratory)" = "Adenovirus"),
+                           virus = recode(virus, "Seasonal coronavirus " = "Corona"),
+                           virus = recode(virus, "Seasonal coronavirus" = "Corona"))
 ggplot(virus_2015_2017, aes(x = week_midpoint, y = labs_testing_n, color = virus)) + geom_point() + geom_line() + theme_bw()
 ggplot(virus_2015_2017, aes(x = week_midpoint, y = tests_performed, color = virus)) + geom_point() + geom_line() + theme_bw()
+ggplot(virus_2015_2017, aes(x = week_midpoint, y = tests_positive, color = virus)) + geom_point() + geom_line() + theme_bw() +
+  xlab("date") + ylab("positive tests (n)")
 ggplot(virus_2015_2017, aes(x = week_midpoint, y = tests_percent_positive, color = virus)) + geom_point() + geom_line() + theme_bw()
 
-write.csv(virus_2015_2017, "C:/Users/dsk856/Box/texas/preliminary_epi/virus/virus_2015_2017.csv", row.names = FALSE)
+#convert to a daily level so it matches up with other data
+library(zoo)
+start_date <- mdy("09-23-2015") #giving a little buffer here to make sure data don't get cut off
+end_date <- mdy("1-7-2018")
+date <-  ymd(seq(as.Date(start_date), as.Date(end_date), by="days"))
+virus_list <- unique(virus_2015_2017$virus)
+
+fill_out_date <- function(virus_focal){
+  #virus_focal <- virus_list[1]
+  virus_2015_2017_join <- virus_2015_2017 %>% mutate(date = week_midpoint) %>% arrange(date) %>% #filter(virus == virus_list[1])
+    filter(virus == virus_focal)
+  virus_df <- data.frame(date) #str(flu_df)
+  virus_df <- left_join(virus_df, virus_2015_2017_join)
+  
+  #get daily value from weekly value by a moving average window
+  virus_df2 <- virus_df %>% #arrange(virus_df, virus, date) %>% 
+    mutate( v_tests_pos = round(rollapply(tests_positive, 7, align = "center", FUN=function(x) mean(x, na.rm=TRUE), fill=NA), 2),
+            v_tests_given = round(rollapply(tests_performed, 7, align = "center", FUN=function(x) mean(x, na.rm=TRUE), fill=NA), 2),
+            v_tests_perc_pos = round(rollapply(tests_percent_positive, 7, align = "center", FUN=function(x) mean(x, na.rm=TRUE), fill=NA), 2)) %>%
+    select(date, v_tests_pos, v_tests_given, v_tests_perc_pos) %>%
+    rename_at(vars(-date),function(x) paste(x, virus_focal, sep = "_"))
+}
+
+virus_df3 <- map_dfc(virus_list, fill_out_date) %>%
+              select(-date1, -date2, -date3, -date4, -date5) #get 
+
+virus_df3[is.na(virus_df3)] <- NA #change NaN to NA
+
+ggplot(virus_df3, aes(x = date, y = v_tests_pos_Adenovirus)) + geom_point() + theme_bw() + geom_line() +
+  xlab("date") + ylab("positive tests (n)")
+
+
+write.csv(virus_df3, "C:/Users/dsk856/Box/texas/preliminary_epi/virus/virus_2015_2017_daily.csv", row.names = FALSE)
 
 
 #files are all stored here: C:\Users\dsk856\Documents\TX_epi
+
+### some data exploration #################################
+
+virus_df3 <- read.csv("C:/Users/dsk856/Box/texas/preliminary_epi/virus/virus_2015_2017_daily.csv")
+head(virus_df3)
+names(virus_df3)
+
+
+virus_df3 %>% 
+  dplyr::select(date, contains("tests_given")) %>% 
+  pivot_longer(cols = contains("tests_given")) %>% 
+  mutate(date = ymd(date)) %>% 
+  ggplot(aes(x = date, y = value, col = name)) + geom_line() 
+
+virus_df3 %>% 
+  dplyr::select(date, contains("perc_pos")) %>% 
+  pivot_longer(cols = contains("perc_pos")) %>% 
+  mutate(date = ymd(date)) %>% 
+  ggplot(aes(x = date, y = value, col = name)) + geom_line() 
+
+virus_df3 %>% 
+  dplyr::select(date, contains("tests_pos")) %>% 
+  pivot_longer(cols = contains("tests_pos")) %>% 
+  mutate(date = ymd(date)) %>% 
+  ggplot(aes(x = date, y = value, col = name)) + geom_line() 
+
+#proportion of tests where something came back positive
+  virus_df3 %>% 
+  dplyr::select(date, contains("perc_pos")) %>% 
+  pivot_longer(cols = contains("perc_pos")) %>% 
+  mutate(date = ymd(date)) %>% 
+  group_by(date) %>% 
+  summarize(total_perc_pos = sum(value)) %>% ungroup() %>%  #summarize(avg_perc_pos = mean(total_perc_pos, na.rm =  TRUE))
+  ggplot(aes(x = date, y = total_perc_pos)) + geom_line() 
+
+#adjusting number of positive tests for the proportion of all tests that were positive for it 
+library(magrittr)  
+virus_df3 %>% 
+  mutate(date = ymd(date),
+         adj_pos_Adenovirus = v_tests_pos_Adenovirus * (v_tests_perc_pos_Adenovirus/100),
+         adj_pos_Corona = v_tests_pos_Corona * (v_tests_perc_pos_Corona/100),
+         adj_pos_HMPV = v_tests_pos_HMPV * (v_tests_perc_pos_HMPV/100),
+         adj_pos_Parainfluenza = v_tests_pos_Parainfluenza * (v_tests_perc_pos_Parainfluenza/100),
+         adj_pos_Rhinovirus = v_tests_pos_Rhinovirus * (v_tests_perc_pos_Rhinovirus/100),
+         adj_pos_RSV = v_tests_pos_RSV * (v_tests_perc_pos_RSV/100)) %>% 
+  {. ->> virus_df5 } %>% #saving this version for the analysis
+  dplyr::select(date, contains("adj_pos")) %>% 
+  pivot_longer(cols = contains("adj_pos")) %>% 
+  ggplot(aes(x = date, y = value, col = name)) + geom_line() 
+write.csv(virus_df5, "C:/Users/dsk856/Box/texas/preliminary_epi/virus/virus_2015_2017_daily_adj.csv", row.names = FALSE)
+
+#approximate number of panel tests
+virus_df3 %>% 
+  dplyr::select(date, contains("tests_given")) %>% 
+  pivot_longer(cols = contains("tests_given")) %>% 
+  group_by(date) %>% 
+  mutate(n_panel_tests = median(value, na.rm = TRUE)) %>%  
+  mutate(date = ymd(date)) %>% 
+  ggplot(aes(x = date, y = value, col = name)) + geom_line() +
+  geom_line(aes(x = date, y = n_panel_tests), col = "black")
+
+
+#an attempt at controling for panel tests
+virus_df4 <- virus_df3 %>% 
+  dplyr::select(date, contains("tests_given")) %>% 
+  pivot_longer(cols = contains("tests_given")) %>% 
+  group_by(date) %>% 
+  mutate(n_panel_tests = median(value, na.rm = TRUE)) %>%  
+  #mutate(date = ymd(date)) %>% 
+  dplyr::select(date, n_panel_tests) %>% 
+  distinct()
+
+left_join(virus_df3, virus_df4) %>% 
+  mutate(date = ymd(date),
+         day_week = weekdays(date)) %>% 
+  filter(day_week == "Monday") %>% 
+  mutate(v_tests_pos_none = 
+           (v_tests_given_Adenovirus + v_tests_given_Corona + v_tests_given_HMPV + v_tests_given_Parainfluenza +
+              v_tests_given_Rhinovirus + v_tests_given_RSV) -
+           
+           (v_tests_given_Adenovirus + v_tests_pos_Corona + v_tests_pos_HMPV + v_tests_pos_Parainfluenza +
+                                               v_tests_pos_Rhinovirus + v_tests_pos_RSV)) %>% 
+  # mutate(v_tests_pos_none = n_panel_tests - (v_tests_pos_Adenovirus + v_tests_pos_Corona + v_tests_pos_HMPV + v_tests_pos_Parainfluenza +
+  #        v_tests_pos_Rhinovirus + v_tests_pos_RSV)) %>% 
+  dplyr::select(date, contains("v_tests_pos_")) %>% 
+  pivot_longer(cols = contains("v_tests_pos_")) %>% 
+  mutate(virus = forcats::lvls_reorder(name, c(1:3, 5:7, 4)))  %>% 
+  group_by(date) %>% 
+  ggplot(aes(x= date, y = value, fill = virus)) + geom_bar(stat = "identity") + theme_bw() + ylab("positive cases")
+  #interesting to see a spike in testing in Jan - March, even when 
+  #there aren't too much of the regular viruses around. Flu? Something else? Interactions with... pollen?
