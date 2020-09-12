@@ -1047,12 +1047,12 @@ adult_trees_lag <- crossbasis(data_for_model$trees_lm, lag = 14,
                         argvar=list(fun = "poly", degree = 1), arglag = list(fun = "poly", degree = 2))
 
 adult_pol_other_lag <- crossbasis(data_for_model$pol_other_lm, lag = 14,
-                            argvar=list(fun = "poly", degree = 1), arglag = list(fun = "poly", degree = 1))
+                            argvar=list(fun = "poly", degree = 2), arglag = list(fun = "poly", degree = 1))
 
 #library(MASS) #glm.nb can be substituted in, but doesn't seem to change much
 adult_model1 <- glm.nb(n_cases ~ NAB_station + 
                 offset(log(adult_pop)) + #offset(log(adult_pop))
-                  adult_ja_lag +  adult_trees_lag + pol_other_lag + 
+                adult_ja_lag +  adult_trees_lag + adult_pol_other_lag + 
                 # v_tests_pos_Rhinovirus_ms+
                 # v_tests_pos_RSV_ms+
                 # v_tests_pos_Corona_ms+
@@ -1085,6 +1085,7 @@ adult_model2 <- update(adult_model1, .~. + tsModel::Lag(resid_adult_model1, 1))
 # hist(model2$fitted.values, n = 200)
 # hist(data_for_model$n_cases, n = 100)
 
+#Cup
 pred1_adult_ja <- crosspred(adult_ja_lag,  adult_model2, #at = 1,
                       at = seq(from = 0, to = max(data_for_model$cup_all_lm), by = 0.10), 
                       bylag = 0.2, cen = 0, cumul = TRUE) #str(pred1_ja)
@@ -1108,6 +1109,19 @@ plot.crosspred(pred1_adult_trees, "contour", cumul = TRUE,
                plot.title = title(xlab = expression(paste("log10(tree pollen grains m"^"3",")")),
                                   ylab = "Lag", main = "Cumulative RR across lags for trees"), key.title = title("RR"))
 
+#other pollen
+pred1_adult_pol_other <- crosspred(adult_pol_other_lag,  adult_model2, #at = 1,
+                            at = seq(from = 0, to = max(data_for_model$pol_other_lm), by = 0.10), 
+                            bylag = 0.2, cen = 0, cumul = TRUE) #str(pred1_ja)
+
+plot(pred1_adult_pol_other, "overall", ci = "lines", #ylim = c(0.95, 10), lwd = 2,
+     xlab = expression(paste("log10(other pollen grains m"^"3",")")),
+     ylab = "RR", main = "Overall effect of Cupressaceae pollen")
+
+plot.crosspred(pred1_adult_pol_other, "contour", cumul = TRUE,
+               plot.title = title(xlab = expression(paste("log10(other pollen grains m"^"3",")")), 
+                                  ylab = "Lag", main = "Cumulative RR across lags for other pollen"), key.title = title("RR"))
+
 
 ### model diagnotistic plots
 #deviance residuals over time
@@ -1128,6 +1142,7 @@ summary(adult_model2)
 
 ### attributable risk ##########################################
 #https://github.com/gasparrini/2015_gasparrini_Lancet_Rcodedata/blob/master/attrdl.R
+#cup
 adult_cup_attr <- attrdl(x = data_for_model$cup_all_lm, basis = adult_ja_lag, cases = data_for_model$n_cases, model = adult_model2, dir = "back", 
                          sim = TRUE, cen = 0, tot = TRUE, type = "an", range = NULL, nsim = 10000)
 summary(adult_cup_attr)
@@ -1135,14 +1150,23 @@ quantile(adult_cup_attr, probs = c(0.025, 0.95))
 mean(adult_cup_attr) / sum(adult_model2$fitted.values)
 quantile(adult_cup_attr, probs = c(0.025, 0.95))/sum(adult_model2$fitted.values)
 
-
+#trees
 adult_trees_attr <- attrdl(x = data_for_model$trees_lm, basis = adult_trees_lag, cases = data_for_model$n_cases, model = adult_model2, dir = "back", sim = TRUE,
                      cen = 0, tot = TRUE, type = "an", range = NULL, nsim = 10000)
 summary(adult_trees_attr)
 quantile(adult_trees_attr, probs = c(0.025, 0.95))
 mean(adult_trees_attr) / sum(adult_model2$fitted.values)
 quantile(adult_trees_attr, probs = c(0.025, 0.95))/sum(adult_model2$fitted.values)
-mean(trees_attr) / sum(adult_model2$fitted.values)
+mean(adult_trees_attr) / sum(adult_model2$fitted.values)
+
+#pol_other
+adult_pol_other_attr <- attrdl(x = data_for_model$pol_other_lm, basis = adult_pol_other_lag, cases = data_for_model$n_cases, 
+                               model = adult_model2, dir = "back", sim = TRUE,cen = 0, tot = TRUE, type = "an", range = NULL, nsim = 10000)
+summary(adult_pol_other_attr)
+quantile(adult_pol_other_attr, probs = c(0.025, 0.95))
+mean(adult_pol_other_attr) / sum(adult_model2$fitted.values)
+quantile(adult_pol_other_attr, probs = c(0.025, 0.95))/sum(adult_model2$fitted.values)
+mean(adult_pol_other_attr) / sum(adult_model2$fitted.values)
 
 
 #no viruses
@@ -1162,7 +1186,6 @@ adult_model_pred_no_RSV <- predict.glm(object = adult_model2, newdata = newdata,
 sum(adult_model2$fitted.values)
 sum(adult_model_pred_no_RSV, na.rm = TRUE)
 (sum(adult_model2$fitted.values) - sum(adult_model_pred_no_RSV, na.rm = TRUE) ) / sum(adult_model2$fitted.values) 
-
 
 #No corona
 newdata <- data_for_model %>%  #data_for_model$v_tests_perc_pos_RSV_ms #str(data_for_model$v_tests_pos_RSV)
