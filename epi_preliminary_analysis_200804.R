@@ -71,7 +71,15 @@ NAB_tx <- left_join(NAB_tx, NAB_locations) %>%  #have to do a second join with l
          cup_all = case_when(tot_pol == 0 & NAB_station == "Waco B" ~ NA_real_, TRUE ~ ja + cup_other),
          trees = case_when(tot_pol == 0 & NAB_station == "Waco B" ~ NA_real_, TRUE ~ trees),
          pol_other = case_when(tot_pol == 0 & NAB_station == "Waco B" ~ NA_real_, TRUE ~ pol_other),
-         tot_pol = case_when(tot_pol == 0 & NAB_station == "Waco B" ~ NA_real_, TRUE ~ tot_pol))
+         tot_pol = case_when(tot_pol == 0 & NAB_station == "Waco B" ~ NA_real_, TRUE ~ tot_pol)) %>% 
+  mutate(ja_m =  case_when(is.na(ja) ~ exp(ja_rfint_log_mean) -1 , !is.na(ja) ~ ja),
+         cup_all_m =  case_when(is.na(ja) ~ exp(cup_other_rfint_log_mean) + exp(ja_rfint_log_mean) -1 , !is.na(ja) ~ ja + cup_other),
+         trees_m = case_when(is.na(trees) ~ exp(trees_rfint_log_mean), !is.na(trees) ~ trees),
+         pol_other_m = case_when(is.na(pol_other) ~ exp(pol_other_rfint_log_mean), !is.na(pol_other) ~ pol_other),
+         ja_lm = log10(ja_m),
+         cup_all_lm = log10(cup_all_m),
+         trees_lm = log10(trees_m),
+         pol_other_lm = log10(pol_other_m))
 
 
 #str(NAB_tx)
@@ -335,9 +343,10 @@ virus <- virus %>%
 
 
 ### load in flu data ###############################################################################
-#downloaded via CDCfluview package, script is here: 
-flu <- read.csv("C:/Users/dsk856/Desktop/misc_data/flu_total_positive191111.csv")
+#downloaded via CDCfluview package, script is here: https://github.com/dankatz/TX_epi/blob/master/cdc_flu_data_acquisition191111.R
+flu <- read.csv("C:/Users/dsk856/Desktop/misc_data/flu_daily_200916.csv")
 flu$date <- ymd(flu$date)
+#summary(flu)
 # flu %>% filter(date > mdy("10-31-2015") & date < mdy("01-01-2018")) %>% 
 # ggplot(aes(x = date, y = flu_d)) + geom_step() + theme_bw()
 
@@ -355,7 +364,7 @@ opa_day <- opa_day %>% group_by(date, NAB_station, doy) %>%
 opa_day <- left_join(opa_day, NAB_tx)
 opa_day <- left_join(opa_day, pop_near_NAB)
 opa_day <- left_join(opa_day, pop_near_NAB_adult)
-opa_day <- left_join(opa_day, flu)
+opa_day <- left_join(opa_day, flu) #str(flu)
 opa_day <- left_join(opa_day, virus) ##head(virus)
 opa_day <- left_join(opa_day, weather_at_stations)
 
@@ -367,39 +376,84 @@ opa_day <- opa_day %>% ungroup() %>% group_by(NAB_station) %>% arrange(NAB_stati
                               week_day = forcats::fct_relevel(week_day, "Monday", "Tuesday", "Wednesday", "Thursday", "Friday",
                                                                      "Saturday", "Sunday"))  %>% filter(date > mdy('9-30-15')) 
 
-#for children
+# #for children
 # opa_day <- mutate(opa_day, pbir = ((n_cases/children_pop) * 10000), #PIBR per 10,000 for children
 #                            pbir_py = (pbir / ((children_pop))) * 100000)
-# write_csv(opa_day, "C:/Users/dsk856/Desktop/thcic_analysis/opa_day_child_200910.csv")
-
-#for adults
+# write_csv(opa_day, "C:/Users/dsk856/Desktop/thcic_analysis/opa_day_child_25km_200916.csv")
+# 
+# #for adults
 # opa_day_adult <- mutate(opa_day, pbir = ((n_cases/adult_pop) * 10000), #PIBR per 10,000 for children
 #                   pbir_py = (pbir / ((adult_pop))) * 100000)
-# write_csv(opa_day_adult, "C:/Users/dsk856/Desktop/thcic_analysis/opa_day_adult_200910.csv")
-
+# write_csv(opa_day_adult, "C:/Users/dsk856/Desktop/thcic_analysis/opa_day_adult_25km_200916.csv")
+# 
 
 
 ### exploring data ###################################################
-opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_child_200910.csv", guess_max = 8260)
-#opa_day_adult <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_adult_200910.csv", guess_max = 8260)
+opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_child_25km_200916.csv", guess_max = 8260)
+opa_day_adult <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_adult_25km_200916.csv", guess_max = 8260)
 
 
 ### fig 2: time series of each var ############################################################
 names(opa_day)
-#time series for major pollen types
-panel_pol <-  opa_day %>% 
-  mutate(Cupressaceae = ja + cup_other,
-         other = pol_other) %>% 
-  select(NAB_station, date, Cupressaceae, trees, other) %>% 
-  pivot_longer(cols = c(Cupressaceae, trees, other), names_to = "pollen_type", values_to = "pollen") %>% 
-  arrange(NAB_station, pollen_type, date) %>% 
-  filter(!is.na(pollen)) %>% 
-  #filter(NAB_station == "San Antonio A" | NAB_station == "San Antonio B") %>% 
-  # filter(date > mdy ("11 - 1- 2017") ) %>% 
-  ggplot(aes(x = date, y = pollen + 1, col = NAB_station, group = NAB_station)) + theme_few() + scale_y_log10() + 
-    geom_line(aes(x = date, y=rollmean((pollen + 1), 7, na.pad=TRUE), col = NAB_station, group = NAB_station)) + 
-  facet_wrap(~pollen_type, nrow = 4) + ylab(pollen~(grains/m^3)) + scale_color_discrete(name = "NAB station") +
-    theme(legend.position= "none" )
+
+#time series for ED visits: children
+pbir_global_mean <- opa_day %>% #the average across all the study areas
+  group_by(date) %>% 
+  summarize(pbir_global_mean = mean(pbir)) 
+panel_ed <-  
+  opa_day %>% 
+  ggplot(aes(x = date, y = pbir, col = NAB_station)) + theme_few() + 
+  geom_line(aes(x = date, y=rollmean((pbir ), 7, na.pad=TRUE)), alpha = 0.3) +
+  geom_line(data = pbir_global_mean, aes(x = date, y = rollmean(pbir_global_mean, 7, na.pad=TRUE)), col = "black") +
+  coord_cartesian(ylim = c(0, 0.55)) +
+  ylab("Asthma ED \n visits \n (per 10,000)") +
+  theme(strip.text.x = element_blank(),
+        strip.background = element_rect(colour="white", fill="white"),
+        legend.position= "none",axis.title.x=element_blank(), axis.text.x=element_blank())
+
+#time series for ED visits: adults
+pbir_global_mean_adult <- opa_day_adult %>% #the average across all the study areas
+  group_by(date) %>% 
+  summarize(pbir_global_mean = mean(pbir)) 
+panel_ed_adult <-  
+  opa_day_adult %>% 
+  ggplot(aes(x = date, y = pbir, col = NAB_station)) + theme_few() + 
+  geom_line(aes(x = date, y=rollmean((pbir ), 7, na.pad=TRUE)), alpha = 0.3) +
+  geom_line(data = pbir_global_mean_adult, aes(x = date, y = rollmean(pbir_global_mean, 7, na.pad=TRUE)), col = "black") +
+  coord_cartesian(ylim = c(0, 0.15)) +
+  #geom_line() + #geom_point() + 
+  ylab("Asthma ED \n visits \n (per 10,000)") +
+  theme(strip.text.x = element_blank(),
+        strip.background = element_rect(colour="white", fill="white"),
+        legend.position= "none", axis.title.x=element_blank(), axis.text.x=element_blank())
+
+## time series for pollen
+pol_global_mean <- opa_day %>% group_by(date) %>% 
+  summarize(cup_all_m_global = mean(cup_all_m),
+            trees_m_global = mean(trees_m),
+            pol_other_m_global = mean(pol_other_m))
+
+panel_pol_cup <-  opa_day %>% 
+  ggplot(aes(x = date, y = cup_all_m + 1, col = NAB_station, group = NAB_station)) + theme_few() + scale_y_log10() + 
+    geom_line(aes(x = date, y=rollmean((cup_all_m + 1), 7, na.pad=TRUE), col = NAB_station, group = NAB_station), alpha = 0.3) + 
+  ylab(expression(atop(pollen, (grains/m^3)))) + scale_color_discrete(name = "NAB station") +
+  geom_line(data = pol_global_mean, aes(x = date, y = rollmean(cup_all_m_global + 1, 7, na.pad=TRUE), col = NA, group = NA), col = "black") +
+    theme(legend.position= "none" ) + theme(axis.title.x=element_blank(), axis.text.x=element_blank())
+
+panel_pol_trees <-  opa_day %>% 
+  ggplot(aes(x = date, y = trees_m + 1, col = NAB_station, group = NAB_station)) + theme_few() + scale_y_log10() + 
+  geom_line(aes(x = date, y=rollmean((trees_m + 1), 7, na.pad=TRUE), col = NAB_station, group = NAB_station), alpha = 0.3) + 
+  ylab(expression(atop(pollen, (grains/m^3)))) + scale_color_discrete(name = "NAB station") +
+  geom_line(data = pol_global_mean, aes(x = date, y = rollmean(trees_m_global + 1, 7, na.pad=TRUE), col = NA, group = NA), col = "black") +
+  theme(legend.position= "none" ) + theme(axis.title.x=element_blank(), axis.text.x=element_blank())
+
+panel_pol_other <-  opa_day %>% 
+  ggplot(aes(x = date, y = pol_other_m + 1, col = NAB_station, group = NAB_station)) + theme_few() + scale_y_log10() + 
+  geom_line(aes(x = date, y=rollmean((pol_other_m + 1), 7, na.pad=TRUE), col = NAB_station, group = NAB_station), alpha = 0.3) + 
+  ylab(expression(atop(pollen, (grains/m^3)))) + scale_color_discrete(name = "NAB station") +
+  geom_line(data = pol_global_mean, aes(x = date, y = rollmean(pol_other_m_global + 1, 7, na.pad=TRUE), col = NA, group = NA), col = "black") +
+  theme(legend.position= "none" ) + theme(axis.title.x=element_blank(), axis.text.x=element_blank())
+
 
 #time series for viruses
 panel_vir <-
@@ -421,27 +475,14 @@ panel_vir <-
                        labels = c("influenza" ,"Seasonal coronavirus", "Rhinovirus","RSV"), name = "virus type") +
     theme(strip.text.x = element_blank(),
           strip.background = element_rect(colour="white", fill="white"),
-          legend.position= "top")
+          legend.position= c(0.75, 0.75))
   
-#time series for ED visits
-pbir_global_mean <- opa_day %>% #the average across all the study areas
-  group_by(date) %>% 
-  summarize(pbir_global_mean = mean(pbir)) 
-panel_ed <-  
-  opa_day %>% 
-  ggplot(aes(x = date, y = pbir, col = NAB_station)) + theme_few() + 
-  geom_line(aes(x = date, y=rollmean((pbir ), 7, na.pad=TRUE)), alpha = 0.3) +
-  geom_line(data = pbir_global_mean, aes(x = date, y = rollmean(pbir_global_mean, 7, na.pad=TRUE)), col = "black") +
-  coord_cartesian(ylim = c(0, 0.55)) +
-  #geom_line() + #geom_point() + 
-  ylab("Asthma ED \n visits \n (per 10,000)") +
-  theme(strip.text.x = element_blank(),
-        strip.background = element_rect(colour="white", fill="white"),
-        legend.position= "none")
 
 #putting together the time series into one plot  
-ts_panels <- cowplot::plot_grid(panel_ed, panel_pol, panel_vir, align = "v", ncol = 1, rel_heights = c(1,3,1.4))
-ggsave(file = "C:/Users/dsk856/Desktop/thcic_analysis/time_series_fig_poster200910.jpg", plot = ts_panels, 
+ts_panels <- cowplot::plot_grid(panel_ed, panel_ed_adult, 
+                                panel_pol_cup, panel_pol_trees, panel_pol_other, panel_vir, 
+                                align = "v", ncol = 1, rel_heights = c(1, 1, 1, 1, 1, 1))
+ggsave(file = "C:/Users/dsk856/Desktop/thcic_analysis/time_series_fig_200916.jpg", plot = ts_panels, 
        height =20, width = 17, units = "cm", dpi = 300)  
 
 #comparing pollen to ED visits for asthma over time
@@ -616,9 +657,12 @@ library(readr)
 library(lubridate)
 library(ggplot2)
 
-opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_child_200910.csv", guess_max = 8260)
-#opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_adult_200910.csv", guess_max = 8260)
+opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_child_200910.csv", guess_max = 8260) #opa_day_child_200910.csv
+#opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_child_10km_200916.csv", guess_max = 8260) 
+#opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_child_50km_200916.csv", guess_max = 8260) 
 
+opa_day %>% #group_by(NAB_station) %>% 
+  summarize(total_cases = sum(n_cases), PBIR_mean = mean(pbir))
 # ggplot(opa_day, aes( x = date, y = log(trees + 1))) + geom_point() + facet_wrap(~NAB_station) +
 #   geom_point(aes(x = date, y = trees_rfint_log_mean), color = "red")
 
@@ -635,31 +679,31 @@ data_for_model <- opa_day %>%
     log_adult_pop = log(adult_pop),
     NAB_station_n = as.numeric(as.factor(NAB_station)),
     flu_ds = as.numeric(scale(flu_d)),
-    ja_l = log10(ja + 1), #mean(log(opa_day$ja + 1), na.rm = TRUE) #mean(opa_day$ja_rfint_log_mean, na.rm = TRUE)
-    ja_lm = case_when(is.na(ja_l) ~ log10(exp(ja_rfint_log_mean)), #converting the predicted log values to log10 and inserting them
-                      !is.na(ja_l) ~ ja_l), #hist(data_for_model$ja_lm)
-    #ja_lms = scale(ja_lm),
-    cup_other_l = log10(cup_other + 1),
-    cup_other_lm = case_when(is.na(cup_other_l) ~ log10(exp(cup_other_rfint_log_mean)),
-                             !is.na(cup_other_l) ~ cup_other_l),
-    #cup_other_lms = scale(cup_other_lm),
-    cup_all_l = log10(ja + cup_other +1),
-    cup_all_lm =  case_when(is.na(ja) ~ log10((exp(cup_other_rfint_log_mean) + exp(ja_rfint_log_mean) -1)) ,
-                             !is.na(ja) ~ cup_all_l),
-    cup_all_m =  case_when(is.na(ja) ~ exp(cup_other_rfint_log_mean) + exp(ja_rfint_log_mean) -1 ,
-                          !is.na(ja) ~ ja + cup_other),
-    #cup_all_ls = scale(cup_all_l),
-    #pol_tot_ls = scale(log(ja + cup_other + trees + pol_other + 1)),
-    trees_l = log10(trees + 1),
-    trees_lm = case_when(is.na(trees_l) ~ log10(exp(trees_rfint_log_mean)),
-                         !is.na(trees_l) ~ trees_l),
-    trees_m = case_when(is.na(trees) ~ exp(trees_rfint_log_mean),
-                         !is.na(trees) ~ trees),
-    #trees_lms = scale(trees_lm),
-    pol_other_l = log10(pol_other + 1),
-    pol_other_lm = case_when(is.na(pol_other_l) ~ log10(exp(pol_other_rfint_log_mean)),
-                             !is.na(pol_other_l) ~ pol_other_l),
-    pol_other_lms = scale(pol_other_lm),
+    # ja_l = log10(ja + 1), #mean(log(opa_day$ja + 1), na.rm = TRUE) #mean(opa_day$ja_rfint_log_mean, na.rm = TRUE)
+    # ja_lm = case_when(is.na(ja_l) ~ log10(exp(ja_rfint_log_mean)), #converting the predicted log values to log10 and inserting them
+    #                   !is.na(ja_l) ~ ja_l), #hist(data_for_model$ja_lm)
+    # #ja_lms = scale(ja_lm),
+    # cup_other_l = log10(cup_other + 1),
+    # cup_other_lm = case_when(is.na(cup_other_l) ~ log10(exp(cup_other_rfint_log_mean)),
+    #                          !is.na(cup_other_l) ~ cup_other_l),
+    # #cup_other_lms = scale(cup_other_lm),
+    # cup_all_l = log10(ja + cup_other +1),
+    # cup_all_lm =  case_when(is.na(ja) ~ log10((exp(cup_other_rfint_log_mean) + exp(ja_rfint_log_mean) -1)) ,
+    #                          !is.na(ja) ~ cup_all_l),
+    # cup_all_m =  case_when(is.na(ja) ~ exp(cup_other_rfint_log_mean) + exp(ja_rfint_log_mean) -1 ,
+    #                       !is.na(ja) ~ ja + cup_other),
+    # #cup_all_ls = scale(cup_all_l),
+    # #pol_tot_ls = scale(log(ja + cup_other + trees + pol_other + 1)),
+    # trees_l = log10(trees + 1),
+    # trees_lm = case_when(is.na(trees_l) ~ log10(exp(trees_rfint_log_mean)),
+    #                      !is.na(trees_l) ~ trees_l),
+    # trees_m = case_when(is.na(trees) ~ exp(trees_rfint_log_mean),
+    #                      !is.na(trees) ~ trees),
+    # #trees_lms = scale(trees_lm),
+    # pol_other_l = log10(pol_other + 1),
+    # pol_other_lm = case_when(is.na(pol_other_l) ~ log10(exp(pol_other_rfint_log_mean)),
+    #                          !is.na(pol_other_l) ~ pol_other_l),
+    # pol_other_lms = scale(pol_other_lm),
     met_prcp_flag = ifelse(met_prcpmmday > 0, 1, 0),
     met_prcpmmday_l = log(met_prcpmmday + 1),
     met_prcpmmday_ls = scale(met_prcpmmday_l),
@@ -963,7 +1007,10 @@ ggplot(attr_full_df, aes(x = date2, y = (prop_risk / child_pop) * 10000, fill = 
 
 #### ADULTS: analysis with a distributed lags model using dlnm package #######################################
 opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_adult_200910.csv", guess_max = 8260)
+#opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_adult_10km_200916.csv", guess_max = 8260) 
+#opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_adult_50km_200916.csv", guess_max = 8260) 
 
+opa_day %>% group_by(NAB_station) %>% summarize(total_cases = sum(n_cases), PBIR_mean = mean(pbir))
 # ggplot(opa_day, aes( x = date, y = log(trees + 1))) + geom_point() + facet_wrap(~NAB_station) +
 #   geom_point(aes(x = date, y = trees_rfint_log_mean), color = "red")
 
