@@ -190,7 +190,7 @@ NAB_dist_opa_join$geometry <- NULL
 opa_raw <- left_join(opa_raw, NAB_dist_opa_join) 
 
 ### filter asthma ED visits where residence was within 25 km of an NAB station ###############################################
-NAB_min_dist_threshold <- 25
+NAB_min_dist_threshold <- 50
 opa <- opa_raw %>%
         filter(NAB_min_dist < NAB_min_dist_threshold) %>% #restrict cases to patients whose residence was within 25 km of a station
         #filter(opa_raw, PAT_COUNTY %in% NAB_counties)  %>% #Travis county number is 453
@@ -354,8 +354,8 @@ flu <- read.csv("C:/Users/dsk856/Desktop/misc_data/flu_daily_200916.csv") %>%
 
 ### combine the various datasets ######################################################################
 opa_day <- opa %>% group_by(date, NAB_station) %>% #names(opa) opa$PAT_AGE_YEARS
-  #filter(between(PAT_AGE_YEARS, 5, 17)) %>% #for children
-  filter(between(PAT_AGE_YEARS, 18, 99)) %>% #for adults
+  filter(between(PAT_AGE_YEARS, 5, 17)) %>% #for children
+  #filter(between(PAT_AGE_YEARS, 18, 99)) %>% #for adults
   summarize(n_cases = n()) %>% 
   mutate(doy = yday(date)) 
 
@@ -381,12 +381,12 @@ opa_day <- opa_day %>% ungroup() %>% group_by(NAB_station) %>% arrange(NAB_stati
 # #for children
 # opa_day <- mutate(opa_day, pbir = ((n_cases/children_pop) * 10000), #PIBR per 10,000 for children
 #                            pbir_py = (pbir / ((children_pop))) * 100000)
-# write_csv(opa_day, "C:/Users/dsk856/Desktop/thcic_analysis/opa_day_child_25km_200916.csv")
+# write_csv(opa_day, "C:/Users/dsk856/Desktop/thcic_analysis/opa_day_child_50km_200918.csv")
 # 
 # #for adults
 # opa_day_adult <- mutate(opa_day, pbir = ((n_cases/adult_pop) * 10000), #PIBR per 10,000 for children
 #                   pbir_py = (pbir / ((adult_pop))) * 100000)
-# write_csv(opa_day_adult, "C:/Users/dsk856/Desktop/thcic_analysis/opa_day_adult_25km_200916.csv")
+# write_csv(opa_day_adult, "C:/Users/dsk856/Desktop/thcic_analysis/opa_day_adult_50km_200918.csv")
 
 
 
@@ -667,10 +667,11 @@ library(dplyr)
 library(readr)
 library(lubridate)
 library(ggplot2)
+library(MASS)
 
-opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_child_25km_200916.csv", guess_max = 8260) #opa_day_child_200910.csv
-#opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_child_10km_200916.csv", guess_max = 8260) 
-#opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_child_50km_200916.csv", guess_max = 8260) 
+#opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_child_25km_200918.csv", guess_max = 8260) #opa_day_child_200910.csv
+#opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_child_10km_200918.csv", guess_max = 8260) 
+opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_child_50km_200918.csv", guess_max = 8260) 
 
 opa_day %>% #group_by(NAB_station) %>% 
   summarize(total_cases = sum(n_cases), PBIR_mean = mean(pbir))
@@ -741,7 +742,7 @@ trees_lag <- crossbasis(data_for_model$trees_lm, lag = 14,
 pol_other_lag <- crossbasis(data_for_model$pol_other_lm, lag = 7,
                             argvar=list(fun = "poly", degree = 3), arglag = list(fun = "poly", degree = 3))
 
-#library(MASS) #glm.nb can be substituted in, but doesn't seem to change much
+#glm.nb can be substituted in, but doesn't seem to change much
 model1 <- glm.nb(n_cases ~ NAB_station + 
                 offset(log(child_pop)) + #offset(log(adult_pop))
                 ja_lag +  trees_lag + #pol_other_lag + 
@@ -777,67 +778,6 @@ model2 <- update(model1, .~. + tsModel::Lag(resid_model1, 1))
 # hist(model2$fitted.values, n = 200)
 # hist(data_for_model$n_cases, n = 100)
 
-
-#cup all  #hist(data_for_model$ja_lm)
-pred1_ja <- crosspred(ja_lag,  model2, #at = 1,
-                      at = seq(from = 0, to = max(data_for_model$cup_all_lm), by = 0.10), 
-                      bylag = 0.2, cen = 0, cumul = TRUE) #str(pred1_ja)
-# # jpeg(filename = "C:/Users/dsk856/Desktop/thcic_analysis/results/ja_lag_200811.jpg", height = 15, width = 22, units = "cm", res = 200, 
-# #      pointsize = 19)
-# plot(pred1_ja, "slices", var=4,  main="", ylab = "Risk Ratio + 95% CI", xlab = "Lag (days)", cex.lab=1.5, cex.axis=1.25)
-# # dev.off()
-# # 
-# # jpeg(filename = "C:/Users/dsk856/Desktop/thcic_analysis/results/ja_lag_cumu_200811_b.jpg", height = 15, width = 22, units = "cm", res = 200, 
-# #      pointsize = 19)
-# plot(pred1_ja, "slices", var=3.5, cumul = TRUE,  main="", cex.lab=1.5, cex.axis=1.25, 
-#      ylab = "cumulative Risk Ratio + 95% CI", xlab = "Lag (days)")
-# # dev.off()
-
-plot(pred1_ja, "overall", ci = "lines", #ylim = c(0.95, 10), lwd = 2,
-     xlab = expression(paste("log10(Cupressaceae pollen grains m"^"3",")")),
-     ylab = "RR", main = "Overall effect of Cupressaceae pollen")
-
-plot.crosspred(pred1_ja, "contour", cumul = TRUE,
-     plot.title = title(xlab = expression(paste("log10(Cupressaceae pollen grains m"^"3",")")), 
-                        ylab = "Lag", main = "Cumulative RR across lags for Cupressaceae"), key.title = title("RR"))
-#axis(1, at = 0:4, labels = c("1", "10", "100", "1,000", "10,000"))
-
-#trees
-pred1_trees <- crosspred(trees_lag,  model2, 
-                         at = seq(from = 0, to = max(data_for_model$trees_lm), by = .10), 
-                         cen = 0, cumul = TRUE)
-# jpeg(filename = "C:/Users/dsk856/Desktop/thcic_analysis/results/trees_lag_200811.jpg", height = 15, width = 22, units = "cm", res = 200, 
-#      pointsize = 19)
-# plot(pred1_trees, "slices", var=1,  main="", cex.lab=1.5, cex.axis=1.25, ylab = "Risk Ratio + 95% CI", xlab = "Lag (days)")
-# dev.off()
-# 
-# jpeg(filename = "C:/Users/dsk856/Desktop/thcic_analysis/results/trees_lag_cumu_200811.jpg", height = 15, width = 22, units = "cm", res = 200, 
-#      pointsize = 19)
-# plot(pred1_trees, "slices", var=4.3, cumul = TRUE,  main="", cex.lab=1.5, cex.axis=1.25,
-#      ylab = "cumulative Risk Ratio + 95% CI", xlab = "Lag (days)")
-# dev.off()
-
-#Modify the colors in the plot.crosspred function: trace(plot.crosspred, edit=TRUE)
-
-plot(pred1_trees, "overall", ci = "lines", #ylim = c(0.95, 4), lwd = 2,
-     xlab = expression(paste("log10(tree pollen grains m"^"3",")")), 
-     ylab = "RR", main = "Overall effect of tree pollen")
-plot.crosspred(pred1_trees, "contour", cumul = TRUE,
-     plot.title = title(xlab = expression(paste("log10(tree pollen grains m"^"3",")")),
-                        ylab = "Lag", main = "Cumulative RR across lags for trees"), key.title = title("RR"))
-
-# #pol_other
-# pred1_pol_other <- crosspred(pol_other_lag,  model2,
-#                              at = seq(from = 0, to = max(data_for_model$pol_other_lm), by = 0.1),
-#                              bylag = 0.2, cen = 0, cumul = TRUE)
-# 
-# plot(pred1_pol_other, "overall", ci = "lines", #ylim = c(0.95, 10), lwd = 2,
-#      xlab = "log(other pollen)", ylab = "RR", main = "Overall effect")
-# 
-# plot.crosspred(pred1_pol_other, "contour", cumul = TRUE,
-#                plot.title = title(xlab = expression(paste("log10(tree pollen grains m"^"3",")")),
-#                                   ylab = "Lag", main = "Cumulative RR across lags for trees"), key.title = title("RR"))
-
 ### model selection #############################################
 # library("MuMIn")
 # 
@@ -857,7 +797,6 @@ data_for_model %>%
   mutate(resid = c(rep(NA, 15), residuals(model2, type = "deviance"))) %>% 
   ggplot(aes(x = date, y = resid)) + theme_bw() +
   geom_point() + facet_wrap(~NAB_station) + ylab("Deviance residuals")
-  
 
 #partial autocorrelation plots of the deviance residuals
 pacf(residuals(model1, type = "deviance"), na.action=na.omit,main="From original model")
@@ -865,6 +804,95 @@ pacf(residuals(model2, type = "deviance"), na.action=na.omit,main="From model ad
 
 summary(model1)
 summary(model2)
+
+#cup all  
+pred1_ja <- crosspred(ja_lag,  model2, #at = 1,
+                      at = seq(from = 0, to = max(data_for_model$cup_all_lm), by = 0.10), 
+                      bylag = 0.2, cen = 0, cumul = TRUE) #str(pred1_ja)
+
+# plot(pred1_ja, "overall", ci = "lines", #ylim = c(0.95, 10), lwd = 2,
+#      xlab = expression(paste("log10(Cupressaceae pollen grains m"^"3",")")),
+#      ylab = "RR", main = "Overall effect of Cupressaceae pollen")
+child_RR_x_cup_25km <- 
+  data.frame(pol_conc = 10^(pred1_ja$predvar), 
+                     mean = pred1_ja$allRRfit,
+                     lower = pred1_ja$allRRlow,
+                     upper = pred1_ja$allRRhigh) %>% 
+ggplot(aes(x = pol_conc, y = mean, ymin = lower, ymax = upper))+
+  geom_ribbon(alpha=0.1)+ geom_line()+ geom_hline(lty=2, yintercept = 1)+ # horizontal reference line at no change in odds
+  xlab(expression(paste("Cupressaceae (pollen grains / m"^"3",")")))+ ylab('RR')+theme_few() + scale_x_log10()
+
+# plot.crosspred(pred1_ja, "contour", cumul = TRUE, #trace(plot.crosspred, edit = TRUE)
+#      plot.title = title(xlab = expression(paste("log10(Cupressaceae pollen grains m"^"3",")")), 
+#                         ylab = "Lag", main = "Cumulative RR across lags for Cupressaceae"), key.title = title("RR"))
+child_lag_RR_x_cup_25km <-
+  as.data.frame(exp(pred1_ja$cumfit)) %>% mutate(pol_conc = pred1_ja$predvar) %>% 
+         pivot_longer(., cols = contains("lag"), names_to = "lag", values_to = "RR") %>% 
+         mutate(lag = as.numeric(gsub(pattern = "lag", replacement = "", x = lag)),
+                pol_conc_exp = 10^pol_conc) %>% 
+ggplot(aes(x = pol_conc_exp, y = lag, z = RR)) + geom_contour_filled(bins = 15) + theme_few() +
+  xlab(expression(paste("Cupressaceae (pollen grains / m"^"3",")")))+ scale_x_log10() +
+  scale_fill_viridis_d(option = "magma", direction = -1, name = "RR") #, begin = 0.3, end = 1) #automatically bins and turns to factor
+  #scale_fill_brewer(palette = "RdYlBu")
+
+
+## trees #
+pred1_trees <- crosspred(trees_lag,  model2, cen = 0, cumul = TRUE,
+                         at = seq(from = 0, to = max(data_for_model$trees_lm), by = .10))
+
+# plot(pred1_trees, "overall", ci = "lines", #ylim = c(0.95, 4), lwd = 2,
+#      xlab = expression(paste("log10(tree pollen grains m"^"3",")")), 
+#      ylab = "RR", main = "Overall effect of tree pollen")
+child_RR_x_trees_25km <- 
+  data.frame(pol_conc = 10^(pred1_trees$predvar), 
+             mean = pred1_trees$allRRfit,
+             lower = pred1_trees$allRRlow,
+             upper = pred1_trees$allRRhigh) %>% 
+  ggplot(aes(x = pol_conc, y = mean, ymin = lower, ymax = upper))+
+  geom_ribbon(alpha=0.1)+ geom_line()+ geom_hline(lty=2, yintercept = 1)+ # horizontal reference line at no change in odds
+  xlab(expression(paste("trees (pollen grains / m"^"3",")")))+ ylab('RR')+theme_few() + scale_x_log10()
+
+
+plot.crosspred(pred1_trees, "contour", cumul = TRUE,
+     plot.title = title(xlab = expression(paste("log10(tree pollen grains m"^"3",")")),
+                        ylab = "Lag", main = "Cumulative RR across lags for trees"), key.title = title("RR"))
+child_lag_RR_x_trees_25km <-
+  as.data.frame(exp(pred1_trees$cumfit)) %>% mutate(pol_conc = pred1_trees$predvar) %>% 
+  pivot_longer(., cols = contains("lag"), names_to = "lag", values_to = "RR") %>% 
+  mutate(lag = as.numeric(gsub(pattern = "lag", replacement = "", x = lag)),
+         pol_conc_exp = 10^pol_conc) %>% 
+  ggplot(aes(x = pol_conc_exp, y = lag, z = RR)) + geom_contour_filled(bins = 15) + theme_few() +
+  xlab(expression(paste("Cupressaceae (pollen grains / m"^"3",")")))+ scale_x_log10() +
+  scale_fill_viridis_d(option = "viridis", direction = -1, name = "RR") 
+
+
+# #pol_other
+# pred1_pol_other <- crosspred(pol_other_lag,  model2,
+#                              at = seq(from = 0, to = max(data_for_model$pol_other_lm), by = 0.1),
+#                              bylag = 0.2, cen = 0, cumul = TRUE)
+# 
+# plot(pred1_pol_other, "overall", ci = "lines", #ylim = c(0.95, 10), lwd = 2,
+#      xlab = "log(other pollen)", ylab = "RR", main = "Overall effect")
+# 
+# plot.crosspred(pred1_pol_other, "contour", cumul = TRUE,
+#                plot.title = title(xlab = expression(paste("log10(tree pollen grains m"^"3",")")),
+#                                   ylab = "Lag", main = "Cumulative RR across lags for trees"), key.title = title("RR"))
+
+#saving the figs 
+#child_pol_25km <-
+  cowplot::plot_grid(child_RR_x_cup_25km, child_lag_RR_x_cup_25km, child_RR_x_trees_25km, child_lag_RR_x_trees_25km,
+                   ncol = 2, labels = c("A) Cupressaceae pollen", 
+                                        "B) Cupressaceae pollen by lag", 
+                                        "C) tree pollen", 
+                                        "D) tree pollen by lag"),
+                   rel_widths = c(0.8, 1, 0.8, 1),
+                   label_size = 11, label_x = 0.14, label_y = 0.9, hjust = 0, vjust = 0)
+
+# ggsave(file = "C:/Users/dsk856/Desktop/thcic_analysis/child_pol_25km_200918.jpg", plot = ts_panels, 
+#        height =20, width = 17, units = "cm", dpi = 300)  
+
+
+
 
 
 ### attributable risk ##########################################
@@ -982,9 +1010,9 @@ ggplot(attr_full_df, aes(x = date2, y = (prop_risk / child_pop) * 10000, fill = 
 
 
 #### ADULTS: analysis with a distributed lags model using dlnm package #######################################
-opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_adult_25km_200916.csv", guess_max = 8260)
-#opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_adult_10km_200916.csv", guess_max = 8260) 
-#opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_adult_50km_200916.csv", guess_max = 8260) 
+#opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_adult_25km_200918.csv", guess_max = 8260)
+#opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_adult_10km_200918.csv", guess_max = 8260) 
+opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_adult_50km_200918.csv", guess_max = 8260) 
 
 opa_day %>% group_by(NAB_station) %>% summarize(total_cases = sum(n_cases), PBIR_mean = mean(pbir))
 # ggplot(opa_day, aes( x = date, y = log(trees + 1))) + geom_point() + facet_wrap(~NAB_station) +
@@ -1046,7 +1074,7 @@ adult_trees_lag <- crossbasis(data_for_model$trees_lm, lag = 14,
 adult_pol_other_lag <- crossbasis(data_for_model$pol_other_lm, lag = 14,
                             argvar=list(fun = "poly", degree = 3), arglag = list(fun = "poly", degree = 3))
 
-#library(MASS) #glm.nb can be substituted in, but doesn't seem to change much
+#glm.nb can be substituted in, but doesn't seem to change much
 adult_model1 <- glm.nb(n_cases ~ NAB_station + 
                 offset(log(adult_pop)) + #offset(log(adult_pop))
                 adult_cup_lag +  adult_trees_lag + adult_pol_other_lag + 
@@ -1082,43 +1110,6 @@ adult_model2 <- update(adult_model1, .~. + tsModel::Lag(resid_adult_model1, 1))
 # hist(model2$fitted.values, n = 200)
 # hist(data_for_model$n_cases, n = 100)
 
-#Cup
-pred1_adult_cup <- crosspred(adult_cup_lag,  adult_model2, #at = 1,
-                      at = seq(from = 0, to = max(data_for_model$cup_all_lm), by = 0.10), 
-                      bylag = 0.2, cen = 0, cumul = TRUE) #str(pred1_ja)
-
-plot(pred1_adult_ja, "overall", ci = "lines", #ylim = c(0.95, 10), lwd = 2,
-     xlab = expression(paste("log10(Cupressaceae pollen grains m"^"3",")")),
-     ylab = "RR", main = "Overall effect of Cupressaceae pollen")
-
-plot.crosspred(pred1_adult_cup, "contour", cumul = TRUE,
-               plot.title = title(xlab = expression(paste("log10(Cupressaceae pollen grains m"^"3",")")), 
-                                  ylab = "Lag", main = "Cumulative RR across lags for Cupressaceae"), key.title = title("RR"))
-#trees
-pred1_adult_trees <- crosspred(adult_trees_lag,  adult_model2, 
-                         at = seq(from = 0, to = max(data_for_model$trees_lm), by = .10), 
-                         cen = 0, cumul = TRUE)
-
-plot(pred1_adult_trees, "overall", ci = "lines", #ylim = c(0.95, 4), lwd = 2,
-     xlab = expression(paste("log10(tree pollen grains m"^"3",")")), 
-     ylab = "RR", main = "Overall effect of tree pollen")
-plot.crosspred(pred1_adult_trees, "contour", cumul = TRUE,
-               plot.title = title(xlab = expression(paste("log10(tree pollen grains m"^"3",")")),
-                                  ylab = "Lag", main = "Cumulative RR across lags for trees"), key.title = title("RR"))
-
-#other pollen
-pred1_adult_pol_other <- crosspred(adult_pol_other_lag,  adult_model2, #at = 1,
-                            at = seq(from = 0, to = max(data_for_model$pol_other_lm), by = 0.10), 
-                            bylag = 0.2, cen = 0, cumul = TRUE) #str(pred1_ja)
-
-plot(pred1_adult_pol_other, "overall", ci = "lines", #ylim = c(0.95, 10), lwd = 2,
-     xlab = expression(paste("log10(other pollen grains m"^"3",")")),
-     ylab = "RR", main = "Overall effect of other pollen")
-
-plot.crosspred(pred1_adult_pol_other, "contour", cumul = TRUE,
-               plot.title = title(xlab = expression(paste("log10(other pollen grains m"^"3",")")), 
-                                  ylab = "Lag", main = "Cumulative RR across lags for other pollen"), key.title = title("RR"))
-
 
 ### model diagnotistic plots
 #deviance residuals over time
@@ -1135,6 +1126,123 @@ pacf(residuals(adult_model2, type = "deviance"), na.action=na.omit,main="From mo
 
 summary(adult_model1)
 summary(adult_model2)
+
+#Cup
+pred1_adult_cup <- crosspred(adult_cup_lag,  adult_model2, #at = 1,
+                      at = seq(from = 0, to = max(data_for_model$cup_all_lm), by = 0.10), 
+                      bylag = 0.2, cen = 0, cumul = TRUE) #str(pred1_ja)
+# plot(pred1_adult_cup, "overall", ci = "lines", #ylim = c(0.95, 10), lwd = 2,
+#      xlab = expression(paste("log10(Cupressaceae pollen grains m"^"3",")")),
+#      ylab = "RR", main = "Overall effect of Cupressaceae pollen")
+# 
+# plot.crosspred(pred1_adult_cup, "contour", cumul = TRUE,
+#                plot.title = title(xlab = expression(paste("log10(Cupressaceae pollen grains m"^"3",")")), 
+#                                   ylab = "Lag", main = "Cumulative RR across lags for Cupressaceae"), key.title = title("RR"))
+# 
+
+
+adult_RR_x_cup_25km <- 
+  data.frame(pol_conc = 10^(pred1_adult_cup$predvar), 
+             mean = pred1_adult_cup$allRRfit,
+             lower = pred1_adult_cup$allRRlow,
+             upper = pred1_adult_cup$allRRhigh) %>% 
+  ggplot(aes(x = pol_conc, y = mean, ymin = lower, ymax = upper))+
+  geom_ribbon(alpha=0.1)+ geom_line()+ geom_hline(lty=2, yintercept = 1)+ # horizontal reference line at no change in odds
+  xlab(expression(paste("Cupressaceae (pollen grains / m"^"3",")")))+ ylab('RR')+theme_few() + scale_x_log10()
+
+adult_lag_RR_x_cup_25km <-
+  as.data.frame(exp(pred1_adult_cup$cumfit)) %>% mutate(pol_conc = pred1_adult_cup$predvar) %>% 
+  pivot_longer(., cols = contains("lag"), names_to = "lag", values_to = "RR") %>% 
+  mutate(lag = as.numeric(gsub(pattern = "lag", replacement = "", x = lag)),
+         pol_conc_exp = 10^pol_conc) %>% 
+  ggplot(aes(x = pol_conc_exp, y = lag, z = RR)) + geom_contour_filled(bins = 15) + theme_few() +
+  xlab(expression(paste("Cupressaceae (pollen grains / m"^"3",")")))+ scale_x_log10() +
+  scale_fill_viridis_d(option = "magma", direction = -1, name = "RR") #, begin = 0.3, end = 1) #automatically bins and turns to factor
+#scale_fill_brewer(palette = "RdYlBu")
+
+
+
+
+#trees
+pred1_adult_trees <- crosspred(adult_trees_lag,  adult_model2, 
+                         at = seq(from = 0, to = max(data_for_model$trees_lm), by = .10), 
+                         cen = 0, cumul = TRUE)
+
+# plot(pred1_adult_trees, "overall", ci = "lines", #ylim = c(0.95, 4), lwd = 2,
+#      xlab = expression(paste("log10(tree pollen grains m"^"3",")")), 
+#      ylab = "RR", main = "Overall effect of tree pollen")
+# plot.crosspred(pred1_adult_trees, "contour", cumul = TRUE,
+#                plot.title = title(xlab = expression(paste("log10(tree pollen grains m"^"3",")")),
+#                                   ylab = "Lag", main = "Cumulative RR across lags for trees"), key.title = title("RR"))
+
+adult_RR_x_trees_25km <- 
+  data.frame(pol_conc = 10^(pred1_adult_trees$predvar), 
+             mean = pred1_adult_trees$allRRfit,
+             lower = pred1_adult_trees$allRRlow,
+             upper = pred1_adult_trees$allRRhigh) %>% 
+  ggplot(aes(x = pol_conc, y = mean, ymin = lower, ymax = upper))+
+  geom_ribbon(alpha=0.1)+ geom_line()+ geom_hline(lty=2, yintercept = 1)+ # horizontal reference line at no change in odds
+  xlab(expression(paste("trees (pollen grains / m"^"3",")")))+ ylab('RR')+theme_few() + scale_x_log10()
+
+adult_lag_RR_x_trees_25km <-
+  as.data.frame(exp(pred1_adult_trees$cumfit)) %>% mutate(pol_conc = pred1_adult_trees$predvar) %>% 
+  pivot_longer(., cols = contains("lag"), names_to = "lag", values_to = "RR") %>% 
+  mutate(lag = as.numeric(gsub(pattern = "lag", replacement = "", x = lag)),
+         pol_conc_exp = 10^pol_conc) %>% 
+  ggplot(aes(x = pol_conc_exp, y = lag, z = RR)) + geom_contour_filled(bins = 15) + theme_few() +
+  xlab(expression(paste("trees (pollen grains / m"^"3",")")))+ scale_x_log10() +
+  scale_fill_viridis_d(option = "magma", direction = -1, name = "RR") #, begin = 0.3, end = 1) #automatically bins and turns to factor
+#scale_fill_brewer(palette = "RdYlBu")
+
+
+
+
+#other pollen
+pred1_adult_pol_other <- crosspred(adult_pol_other_lag,  adult_model2, #at = 1,
+                            at = seq(from = 0, to = max(data_for_model$pol_other_lm), by = 0.10), 
+                            bylag = 0.2, cen = 0, cumul = TRUE) #str(pred1_ja)
+
+plot(pred1_adult_pol_other, "overall", ci = "lines", #ylim = c(0.95, 10), lwd = 2,
+     xlab = expression(paste("log10(other pollen grains m"^"3",")")),
+     ylab = "RR", main = "Overall effect of other pollen")
+
+plot.crosspred(pred1_adult_pol_other, "contour", cumul = TRUE,
+               plot.title = title(xlab = expression(paste("log10(other pollen grains m"^"3",")")), 
+                                  ylab = "Lag", main = "Cumulative RR across lags for other pollen"), key.title = title("RR"))
+adult_RR_x_pol_other_25km <- 
+  data.frame(pol_conc = 10^(pred1_adult_pol_other$predvar), 
+             mean = pred1_adult_pol_other$allRRfit,
+             lower = pred1_adult_pol_other$allRRlow,
+             upper = pred1_adult_pol_other$allRRhigh) %>% 
+  ggplot(aes(x = pol_conc, y = mean, ymin = lower, ymax = upper))+
+  geom_ribbon(alpha=0.1)+ geom_line()+ geom_hline(lty=2, yintercept = 1)+ # horizontal reference line at no change in odds
+  xlab(expression(paste("trees (pollen grains / m"^"3",")")))+ ylab('RR')+theme_few() + scale_x_log10()
+
+adult_lag_RR_x_pol_other_25km <-
+  as.data.frame(exp(pred1_adult_pol_other$cumfit)) %>% mutate(pol_conc = pred1_adult_pol_other$predvar) %>% 
+  pivot_longer(., cols = contains("lag"), names_to = "lag", values_to = "RR") %>% 
+  mutate(lag = as.numeric(gsub(pattern = "lag", replacement = "", x = lag)),
+         pol_conc_exp = 10^pol_conc) %>% 
+  ggplot(aes(x = pol_conc_exp, y = lag, z = RR)) + geom_contour_filled(bins = 15) + theme_few() +
+  xlab(expression(paste("trees (pollen grains / m"^"3",")")))+ scale_x_log10() +
+  scale_fill_viridis_d(option = "magma", direction = -1, name = "RR") #, begin = 0.3, end = 1) #automatically bins and turns to factor
+#scale_fill_brewer(palette = "RdYlBu")
+
+#saving the figs 
+cowplot::plot_grid(adult_RR_x_cup_25km, adult_lag_RR_x_cup_25km, adult_RR_x_trees_25km, adult_lag_RR_x_trees_25km,
+                   adult_RR_x_pol_other_25km, adult_lag_RR_x_pol_other_25km,
+                   ncol = 2, labels = c("A) Cupressaceae pollen", 
+                                        "B) Cupressaceae pollen by lag", 
+                                        "C) tree pollen", 
+                                        "D) tree pollen by lag",
+                                        "E) other pollen",
+                                        "F) other pollen by lag)"),
+                   rel_widths = c(0.8, 1, 0.8, 1, 0.8, 1),
+                   label_size = 11, label_x = 0.14, label_y = 0.9, hjust = 0, vjust = 0)
+
+# ggsave(file = "C:/Users/dsk856/Desktop/thcic_analysis/child_pol_25km_200918.jpg", plot = ts_panels, 
+#        height =20, width = 17, units = "cm", dpi = 300)  
+
 
 
 ### attributable risk ##########################################
