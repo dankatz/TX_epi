@@ -3,16 +3,16 @@
 library(tidyr) #install.packages("tidyr") 
 library(dplyr) #install.packages("dplyr")
 library(readr)
-library(stringr)
 library(lubridate)
 library(ggplot2)
+library(ggthemes)
+library(scales)
+library(stringr)
 library(zipcode) #downloaded from the archives, no longer on CRAN
 library(sf)
 library(noncensus) #not available for R 4.0.0 yet
 library(zoo)
-library(ggthemes)
 library(tidycensus) 
-library(scales)
 library(tigris)
 options(tigris_use_cache = TRUE)
 library(lwgeom)
@@ -190,7 +190,7 @@ NAB_dist_opa_join$geometry <- NULL
 opa_raw <- left_join(opa_raw, NAB_dist_opa_join) 
 
 ### filter asthma ED visits where residence was within 25 km of an NAB station ###############################################
-NAB_min_dist_threshold <- 50
+NAB_min_dist_threshold <- 25
 opa <- opa_raw %>%
         filter(NAB_min_dist < NAB_min_dist_threshold) %>% #restrict cases to patients whose residence was within 25 km of a station
         #filter(opa_raw, PAT_COUNTY %in% NAB_counties)  %>% #Travis county number is 453
@@ -244,12 +244,19 @@ day_NAB_list <- mutate(day_NAB_list, n_cases = 0, doy = yday(date))
 # AllF <- v17$name[29:51]
 # All_vars <- c(AllM, AllF)
 
+### define target age range here 
+age_low <- 5
+age_hi <- 14
+
 #Variables that I want: ages 5-17  #B01001_003
 c_vars <- c("B01001_004", "B01001_005", "B01001_006", #males from 5-17 years old
             "B01001_028", "B01001_029", "B01001_030") #females from 5-17 years old
 c_vars_adult <- c(paste0("B0100", 1007:1025), #males
                   paste0("B0100", 1031:1049)) %>%  #females
                   gsub(pattern = "B01001", replacement ="B01001_", x = .) #adding the underscore back in
+c_vars_agegroup_x <- c(paste0("B0100", 1004:1005), #males
+                    paste0("B0100", 1028:1029)) %>%  #females
+  gsub(pattern = "B01001", replacement ="B01001_", x = .) #adding the underscore back in
 
 #census_All_2017 <- get_acs(state="TX", geography="block group", year = 2017, variables=All_vars, geometry=FALSE) #takes 5 min
 #write_csv(census_All_2017, "C:/Users/dsk856/Desktop/misc_data/ACS_pop_by_age_2017_200331.csv")
@@ -269,16 +276,6 @@ distances_bg_min <- apply(distances_bg_df, 1, FUN = min) #minimum distance to a 
 which_station_closest_bg <- apply(distances_bg_df, 1, function(x) which(x == min(x, na.rm = TRUE))) #which station is closest
 station_looked_up_bg <- left_join(data.frame(n_lookup = which_station_closest_bg), NAB_station_lookup) #NAB_station_lookup was defined earlier
 
-# closest_station_bg <- recode(as.character(which_station_closest_bg), 
-#                           "1" = "Georgetown",
-#                           "2" =  "Houston",
-#                           "3" =   "Waco1",
-#                           "4" = "Dallas",
-#                           "5" = "Waco2",
-#                           "6" =  "College Station",
-#                           "7" = "Flower Mound",
-#                           "8" = "San Antonio 1",
-#                           "9" = "San Antonio 2")
 census_All_2017_sf <- mutate(census_All_2017_sf, NAB_min_dist_bg = distances_bg_min, NAB_station = station_looked_up_bg$NAB_station)
 census_All_2017_sf$geometry <- NULL
 pop_near_NAB <- census_All_2017_sf %>% filter(NAB_min_dist_bg < NAB_min_dist_threshold) %>%
@@ -291,11 +288,15 @@ pop_near_NAB_adult <- census_All_2017_sf %>% filter(NAB_min_dist_bg < NAB_min_di
   group_by(NAB_station) %>%
   summarize(adult_pop = sum(estimate)) #names(pop_near_NAB)
 
+pop_near_NAB_agegroup_x <- census_All_2017_sf %>% filter(NAB_min_dist_bg < NAB_min_dist_threshold) %>%
+  filter(variable %in% c_vars_agegroup_x) %>%  #only select variables that are population of children between 5 and 17
+  group_by(NAB_station) %>%
+  summarize(agegroup_x_pop = sum(estimate)) #names(pop_near_NAB)
 
-#block groups IDs that are near NAB stations
-block_groups_near_NAB <- census_All_2017_sf %>% filter(NAB_min_dist_bg < NAB_min_dist_threshold) %>%
-  select(GEOID, NAB_station) %>%
-  distinct()
+# #block groups IDs that are near NAB stations
+#  block_groups_near_NAB <- census_All_2017_sf %>% filter(NAB_min_dist_bg < NAB_min_dist_threshold) %>%
+#   select(GEOID, NAB_station) %>%
+#   distinct()
 
 ### download and extract met data ###############################################################
 # library(daymetr)
@@ -316,7 +317,7 @@ weather_at_stations <- read_csv("C:/Users/dsk856/Desktop/misc_data/weather_at_NA
   mutate(measurement = gsub(pattern = ".", replacement = "", x = measurement, fixed = TRUE)) %>%
   dplyr::select(NAB_station = site, date, measurement, value) %>%
   pivot_wider(id_cols = c(NAB_station, date), names_from = measurement, values_from = value, names_prefix = "met_")
-head(weather_at_stations)
+#head(weather_at_stations)
 
 
 
@@ -354,8 +355,9 @@ flu <- read.csv("C:/Users/dsk856/Desktop/misc_data/flu_daily_200916.csv") %>%
 
 ### combine the various datasets ######################################################################
 opa_day <- opa %>% group_by(date, NAB_station) %>% #names(opa) opa$PAT_AGE_YEARS
-  filter(between(PAT_AGE_YEARS, 5, 17)) %>% #for children
+  #filter(between(PAT_AGE_YEARS, 5, 17)) %>% #for children
   #filter(between(PAT_AGE_YEARS, 18, 99)) %>% #for adults
+  filter(between(PAT_AGE_YEARS, age_low, age_hi)) %>% #for adults
   summarize(n_cases = n()) %>% 
   mutate(doy = yday(date)) 
 
@@ -366,6 +368,7 @@ opa_day <- opa_day %>% group_by(date, NAB_station, doy) %>%
 opa_day <- left_join(opa_day, NAB_tx)
 opa_day <- left_join(opa_day, pop_near_NAB)
 opa_day <- left_join(opa_day, pop_near_NAB_adult)
+opa_day <- left_join(opa_day, pop_near_NAB_agegroup_x)
 opa_day <- left_join(opa_day, flu) #str(flu)
 opa_day <- left_join(opa_day, virus) ##head(virus)
 opa_day <- left_join(opa_day, weather_at_stations)
@@ -387,275 +390,279 @@ opa_day <- opa_day %>% ungroup() %>% group_by(NAB_station) %>% arrange(NAB_stati
 # opa_day_adult <- mutate(opa_day, pbir = ((n_cases/adult_pop) * 10000), #PIBR per 10,000 for children
 #                   pbir_py = (pbir / ((adult_pop))) * 100000)
 # write_csv(opa_day_adult, "C:/Users/dsk856/Desktop/thcic_analysis/opa_day_adult_50km_200918.csv")
+#for agegroup_x
+opa_day_agegroup_x <- mutate(opa_day, pbir = ((n_cases/agegroup_x_pop) * 10000), #PIBR per 10,000 for children
+                  pbir_py = (pbir / ((agegroup_x_pop))) * 100000)
+write_csv(opa_day_agegroup_x, paste0("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_ages_",age_low,"_",age_hi, "_25km_200924.csv"))
 
 
 
-### exploring data ###################################################
-opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_child_25km_200916.csv", guess_max = 8260)
-opa_day_adult <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_adult_25km_200916.csv", guess_max = 8260)
-
-
-### fig 2: time series of each var ############################################################
-names(opa_day)
-
-#time series for ED visits: children
-pbir_global_mean <- opa_day %>% #the average across all the study areas
-  group_by(date) %>% 
-  summarize(pbir_global_mean = mean(pbir)) 
-panel_ed <-  
-  opa_day %>% 
-  ggplot(aes(x = date, y = pbir, col = NAB_station)) + theme_few() + 
-  geom_line(aes(x = date, y=rollmean((pbir ), 7, na.pad=TRUE)), alpha = 0.3) +
-  geom_line(data = pbir_global_mean, aes(x = date, y = rollmean(pbir_global_mean, 7, na.pad=TRUE)), col = "black") +
-  coord_cartesian(ylim = c(0, 0.55)) +  scale_color_grey() +
-  ylab("Asthma ED \n visits \n (per 10,000)") +
-  theme(strip.text.x = element_blank(),
-        strip.background = element_rect(colour="white", fill="white"),
-        legend.position= "none",axis.title.x=element_blank(), axis.text.x=element_blank())
-
-#time series for ED visits: adults
-pbir_global_mean_adult <- opa_day_adult %>% #the average across all the study areas
-  group_by(date) %>% 
-  summarize(pbir_global_mean = mean(pbir)) 
-
-panel_ed_adult <-  
-  opa_day_adult %>% 
-  ggplot(aes(x = date, y = pbir, col = NAB_station)) + theme_few() + 
-  geom_line(aes(x = date, y=rollmean((pbir ), 7, na.pad=TRUE)), alpha = 0.3) +
-  geom_line(data = pbir_global_mean_adult, aes(x = date, y = rollmean(pbir_global_mean, 7, na.pad=TRUE)), col = "black") +
-  coord_cartesian(ylim = c(0, 0.12)) +  scale_color_grey(name = "NAB station") +
-  ylab("Asthma ED \n visits \n (per 10,000)") +
-  theme(strip.text.x = element_blank(),
-        strip.background = element_rect(colour="white", fill="white"),
-        legend.position= "none", 
-        axis.title.x=element_blank(), axis.text.x=element_blank())
-
-## time series for pollen
-pol_global_mean <- opa_day %>% group_by(date) %>% 
-  summarize(cup_all_m_global = mean(cup_all_m),
-            trees_m_global = mean(trees_m),
-            pol_other_m_global = mean(pol_other_m))
-
-panel_pol_cup <-  opa_day %>% 
-  ggplot(aes(x = date, y = cup_all_m + 1, col = NAB_station, group = NAB_station)) + theme_few() + scale_y_log10() + 
-    geom_line(aes(x = date, y=rollmean((cup_all_m + 1), 7, na.pad=TRUE), col = NAB_station, group = NAB_station), alpha = 0.3) + 
-  ylab(expression(atop(pollen, (grains/m^3)))) +  scale_color_grey(name = "NAB station")+ #scale_color_discrete(name = "NAB station") + 
-  geom_line(data = pol_global_mean, aes(x = date, y = rollmean(cup_all_m_global + 1, 7, na.pad=TRUE), col = NA, group = NA), col = "black") +
-    theme(legend.position= "none" ) + theme(axis.title.x=element_blank(), axis.text.x=element_blank())
-
-panel_pol_trees <-  opa_day %>% 
-  ggplot(aes(x = date, y = trees_m + 1, col = NAB_station, group = NAB_station)) + theme_few() + scale_y_log10() + 
-  geom_line(aes(x = date, y=rollmean((trees_m + 1), 7, na.pad=TRUE), col = NAB_station, group = NAB_station), alpha = 0.3) + 
-  ylab(expression(atop(pollen, (grains/m^3)))) + scale_color_grey(name = "NAB station")+ #scale_color_discrete(name = "NAB station") + 
-  geom_line(data = pol_global_mean, aes(x = date, y = rollmean(trees_m_global + 1, 7, na.pad=TRUE), col = NA, group = NA), col = "black") +
-  theme(legend.position= "none" ) + theme(axis.title.x=element_blank(), axis.text.x=element_blank())
-
-panel_pol_other <-  opa_day %>% 
-  ggplot(aes(x = date, y = pol_other_m + 1, col = NAB_station, group = NAB_station)) + theme_few() + scale_y_log10() + 
-  geom_line(aes(x = date, y=rollmean((pol_other_m + 1), 7, na.pad=TRUE), col = NAB_station, group = NAB_station), alpha = 0.3) + 
-  ylab(expression(atop(pollen, (grains/m^3)))) + scale_color_grey(name = "NAB station")+ #scale_color_discrete(name = "NAB station") + 
-  geom_line(data = pol_global_mean, aes(x = date, y = rollmean(pol_other_m_global + 1, 7, na.pad=TRUE), col = NA, group = NA), col = "black") +
-  theme(legend.position= "none" ) + theme(axis.title.x=element_blank(), axis.text.x=element_blank())
-
-
-#time series for viruses
-panel_vir <-
-  opa_day %>% ungroup() %>% 
-   mutate(flu_d_perc_pos = flu_d_prop_pos * 100) %>% 
-  #        v_tests_adj_pos_Corona_ms = v_tests_adj_pos_Corona_m/130.6684,
-  #        v_tests_adj_pos_Rhinovirus_ms = v_tests_adj_pos_Rhinovirus_m/130.6684 ,
-  #        v_tests_adj_pos_RSV_ms = v_tests_adj_pos_RSV_m/130.6684 ) %>% 
-    dplyr::select(date, v_tests_perc_pos_Corona_m, v_tests_perc_pos_Rhinovirus_m, v_tests_perc_pos_RSV_m, flu_d_perc_pos) %>% 
-    pivot_longer(cols = c(v_tests_perc_pos_Corona_m, v_tests_perc_pos_Rhinovirus_m, v_tests_perc_pos_RSV_m, flu_d_perc_pos), 
-                 names_to = "virus_type", values_to = "positive_tests") %>% 
-    distinct() %>% 
-    #filter(date > mdy("10 - 31 - 2015")) %>% 
-    arrange(virus_type, date) %>% 
-    ggplot(aes(x = date, y = positive_tests, color = virus_type)) + theme_few() + 
-    geom_step() + #geom_point() +
-    ylab(expression(atop("positive tests", "(%)"))) +
-    scale_color_viridis_d(breaks = c("flu_d_perc_pos", "v_tests_perc_pos_Corona_m", "v_tests_perc_pos_Rhinovirus_m",
-                                    "v_tests_perc_pos_RSV_m"), option = "viridis",
-                       labels = c("Influenza" ,"Seasonal coronavirus", "Rhinovirus","RSV"), name = "virus type") +
-    theme(strip.text.x = element_blank(),
-          strip.background = element_rect(colour="white", fill="white"),
-          legend.position= "none")#c(0.75, 0.75))
-
-#putting together the time series into one plot  
-ts_panels <- cowplot::plot_grid(panel_ed, panel_ed_adult, 
-                                panel_pol_cup, panel_pol_trees, panel_pol_other, panel_vir, 
-                                align = "v", ncol = 1, rel_heights = c(1, 1, 1, 1, 1, 1),
-                                labels = c("A) Pediatric ARED", "B) Adult ARED", "C) Cupressaceae pollen", "D) tree pollen",
-                                           "E) other pollen","F) Viruses"),
-                                label_size = 11,
-                                label_x = 0.17, label_y = 0.8,
-                                hjust = 0, vjust = 0)
-ggsave(file = "C:/Users/dsk856/Desktop/thcic_analysis/time_series_fig_200916.jpg", plot = ts_panels, 
-       height =20, width = 17, units = "cm", dpi = 300)  
-
-
-
-
-#comparing pollen to ED visits for asthma over time
-names(opa_day)
-panel_a <- opa_day %>%
-filter(date > ymd("2015 - 11 - 01")) %>%
-filter(NAB_station == "San Antonio A") %>%
-  ggplot(aes(x = date, y = n_cases)) + theme_few() +  
-  geom_point(alpha = 0.2)  +  ylab("number of asthma ED visits") + # ylab("PBIR (asthma ED visits per 10,000 residents)") + #+ geom_smooth(method = "lm", se = FALSE, color = "gray")
-  xlab("") + #scale_color_viridis_c(name = "pollen grains per m3") +
-  geom_line(aes(x = date, y=rollmean(n_cases, 7, na.pad=TRUE)), color = "black")
-panel_b <- opa_day %>% 
-  filter(date > ymd("2015 - 11 - 01")) %>%
-  filter(NAB_station == "San Antonio A") %>%
-  ggplot(aes(x = date, y = log(ja + 1))) + theme_few() +  #scale_x_log10() + 
-  geom_point(alpha = 0.2)  +  ylab("log(pollen grains/m3)") + # ylab("PBIR (asthma ED visits per 10,000 residents)") + #+ geom_smooth(method = "lm", se = FALSE, color = "gray")
-  xlab("") + #scale_color_viridis_c(name = "pollen grains per m3") +
-  geom_line(aes(x = date, y=rollmean(log(ja + 1), 7, na.pad=TRUE)), color = "black")
-panel_c <- opa_day %>% 
-  filter(date > ymd("2015 - 11 - 01")) %>%
-  filter(NAB_station == "San Antonio A") %>%
-  ggplot(aes(x = date, y = log(cup_other_rfint_log_mean + 1))) + theme_few() +  #scale_x_log10() + 
-  geom_point(alpha = 0.2)  +  ylab("log(pollen grains/m3)") + # ylab("PBIR (asthma ED visits per 10,000 residents)") + #+ geom_smooth(method = "lm", se = FALSE, color = "gray")
-  xlab("") + #scale_color_viridis_c(name = "pollen grains per m3") +
-  geom_line(aes(x = date, y=rollmean(log(cup_other_rfint_log_mean + 1), 7, na.pad=TRUE)), color = "black")
-panel_d <- opa_day %>% 
-  filter(date > ymd("2015 - 11 - 01")) %>%
-  filter(NAB_station == "San Antonio A") %>%
-  ggplot(aes(x = date, y = log(trees + 1))) + theme_few() +  #scale_x_log10() + 
-  geom_point(alpha = 0.2)  +  ylab("log(pollen grains/m3)") + # ylab("PBIR (asthma ED visits per 10,000 residents)") + #+ geom_smooth(method = "lm", se = FALSE, color = "gray")
-  xlab("") + #scale_color_viridis_c(name = "pollen grains per m3") +
-  geom_line(aes(x = date, y=rollmean(log(trees + 1), 7, na.pad=TRUE)), color = "black")
-panel_e <- opa_day %>% 
-  filter(date > ymd("2015 - 11 - 01")) %>%
-  filter(NAB_station == "San Antonio A") %>%
-  ggplot(aes(x = date, y = log(pol_other + 1))) + theme_few() +  #scale_x_log10() + 
-  geom_point(alpha = 0.2)  +  ylab("log(pollen grains/m3)") + # ylab("PBIR (asthma ED visits per 10,000 residents)") + #+ geom_smooth(method = "lm", se = FALSE, color = "gray")
-  xlab("") + #scale_color_viridis_c(name = "pollen grains per m3") +
-  geom_line(aes(x = date, y=rollmean(log(pol_other + 1), 7, na.pad=TRUE)), color = "black")
-
-cowplot::plot_grid(panel_a, panel_b, panel_c, panel_d, panel_e, nrow = 5, 
-                   labels = c("ED visits", "J. ashei", "other Cupressaceae", "trees", "other pollen"))
-
-  
-  opa_day %>%
-    filter(date > ymd("2015 - 11 - 01")) %>%
-    filter(NAB_station == "Houston" | NAB_station == "Dallas" | NAB_station == "San Antonio A") %>%
-    ggplot(aes(x = date, y = n_cases, color = v_tests_pos_RSV )) + theme_few() +  facet_wrap(~NAB_station, scale = "free_y", ncol = 1) + #scale_x_log10() + 
-    geom_point()  +  ylab("number of asthma ED visits") + # ylab("PBIR (asthma ED visits per 10,000 residents)") + #+ geom_smooth(method = "lm", se = FALSE, color = "gray")
-    xlab("") + scale_color_viridis_c() +
-    geom_line(aes(x = date, y=rollmean(n_cases, 7, na.pad=TRUE)), color = "black")
-  
-  opa_day %>%
-    filter(date > ymd("2015 - 11 - 01")) %>%
-    filter(NAB_station == "Georgetown" ) %>%
-    ggplot(aes(x = date, y = tot_pol +1 )) + theme_bw() +  #facet_wrap(~NAB_station, scale = "free_y", ncol = 1) + #scale_x_log10() + 
-    geom_point()  +  ylab("airborne pollen (grains/m3)") + # ylab("PBIR (asthma ED visits per 10,000 residents)") + #+ geom_smooth(method = "lm", se = FALSE, color = "gray")
-    xlab("") + #+ scale_color_viridis_c(name = "max temp (C)") +
-    #geom_line(aes(x = date, y= tot_pol_m7 + 1)) +
-    scale_x_date(breaks = pretty_breaks(15)) +
-    scale_y_log10()
-  
-  opa_day %>%
-    filter(date > ymd("2015 - 11 - 01")) %>%
-    filter(NAB_station == "Houston" | NAB_station == "Dallas" | NAB_station == "San Antonio A") %>%
-    ggplot(aes(x = date, y = met_tmaxdegc )) + theme_few() +  facet_wrap(~NAB_station, scale = "free_y", ncol = 1) + #scale_x_log10() + 
-    #geom_point()  +  
-    ylab("temperature (C)") + # ylab("PBIR (asthma ED visits per 10,000 residents)") + #+ geom_smooth(method = "lm", se = FALSE, color = "gray")
-    #xlab("") + 
-    geom_line(aes(x = date, y=rollmean(n_cases, 3, na.pad=TRUE), col = log10(tot_pol + 1)), lwd = 2) +
-    geom_line(aes(x = date, y=rollmean(met_tmaxdegc, 7, na.pad=TRUE)), color = "red") +
-     scale_y_continuous("ED visits", sec.axis = sec_axis(~ . , name = "temperature")) +
-    theme(      axis.title.y.right = element_text(color = "red")) +
-    scale_color_viridis_c()
-  
-opa_day %>%
-  ggplot(aes(y = tot_pol, x = met_tmaxdegc, col = doy)) + theme_few() +  facet_wrap(~NAB_station) + scale_y_log10() +  #facet_wrap(~year, ncol = 1) + #
-  geom_point() + xlab("maximum temp (C)") + ylab("pollen grains per m3") + #geom_smooth(method = "lm", se = FALSE)  + 
-  scale_color_viridis_c(name = "day of year")#ylab("PBIR (asthma ED visits per 10,000 residents)")  
-  
-opa_day %>% ungroup() %>%
-  filter(NAB_station == "San Antonio A" | NAB_station == "Dallas" | NAB_station == "Houston") %>%
-  filter(date > ymd("2015-11-01")) %>%
-  filter(year == 2016) %>%
-  ggplot(aes(x = date, y = tot_pol_stan )) + theme_bw() +  facet_wrap(~NAB_station, ncol = 1) +#+ facet_wrap(~year, ncol = 1) + #+ scale_y_log10() + 
-  geom_line(aes(x = date , y=rollmean(log10(tot_pol + 1) * 25, 7, na.pad=TRUE)), color = "blue") +
-  geom_line(aes(x = date , y=rollmean(v_tests_pos_Rhinovirus * 0.3, 7, na.pad=TRUE)), color = "green") +
-  geom_line(aes(x = date, y=rollmean(pbir * 175, 7, na.pad=TRUE)), color = "red") +
-  coord_cartesian(ylim = c(0, 100)) +
-  scale_x_date(breaks = pretty_breaks(30)) +
-  ylab("variable scaled to 100")
-#ylab("PBIR (asthma ED visits per 10,000 residents)")  
-
-test <- filter(opa_day, MSA == "San Antonio-New Braunfels")
-ccf(test$hits_day_adj_pollen, test$tot_pol)
-ccf(test$hits_day_adj_pollen, test$pbir_child)
-
-opa_day %>% ungroup() %>% #unique(opa_day$NAB_station)
-  filter(date > ymd("2015-11-01")) %>%
-  #filter(year == 2017) %>%
-  #filter(NAB_station == "San Antonio B" | NAB_station == "San Antonio A" ) %>%
-  #filter(NAB_station == "Waco B" | NAB_station == "Waco A" ) %>%
-  filter(NAB_station == "Dallas" | NAB_station == "Flower Mound" ) %>%
-  #filter(NAB_station == "Houston" | NAB_station == "Dallas" | NAB_station == "San Antonio A" | NAB_station == "Georgetown") %>%
-  #filter(NAB_station == "Flower Mound" | NAB_station == "San Antonio B" | NAB_station == "San Antonio A" | NAB_station == "Georgetown") %>%
-  ggplot(aes(x = date, y = pbir * 500 , col = log10(tot_pol+ 1) )) + theme_bw() +  facet_wrap(~NAB_station, ncol = 1) +
-  scale_color_viridis_c() +
-  #geom_line( lwd = 2) + 
-  geom_line(aes(x = date - 10, y=rollmean(pbir * 1000, 7, na.pad=TRUE)), color = "red", lwd = 2) + 
-  geom_point(aes(x = date, y = 50 * log(tot_pol + 1)))+
-  geom_line(aes(x = date, y = v_tests_pos_Adenovirus), color = "pink")+
-  geom_line(aes(x = date, y = v_tests_pos_HMPV), color = "pink")+
-  geom_line(aes(x = date, y = v_tests_pos_Corona), color = "green")+
-  geom_line(aes(x = date, y = v_tests_pos_Rhinovirus), color = "blue")+
-  geom_line(aes(x = date, y = v_tests_pos_RSV), color = "goldenrod")+
-  geom_line(aes(x = date, y = v_tests_pos_Parainfluenza), color = "pink") 
-  
-opa_day %>%
-filter(NAB_station == "Dallas") %>%
-#filter(year == 2016) %>%
-ggplot(aes(x = date, y = pbir, col = (tot_pol + 1))) + geom_point(size = 2) + theme_bw() + 
-  scale_color_viridis_c(trans = "log10", name = "total pollen (g/m3)") +
-  scale_x_date(breaks = pretty_breaks(20)) + ylab("PBIR (Asthma ED visits per 10,000 residents)") +#scale_y_log10()  + 
-  geom_line(aes(x = date, y=rollmean(pbir, 14, na.pad=TRUE)), color = "red") 
-  #geom_line(aes(x = date, y=rollmean(log10(tot_pol + 1)/10, 3, na.pad=TRUE)), color = "blue") 
-
-
-# #overlap between San Antonio datasets?
-# filter(NAB_tx, county_name == "Bexar") %>%
-#   ggplot(aes(x = date, y = Cupressaceae, color = file)) + geom_point() + facet_wrap(~file, ncol = 1)
-# 
-# filter(NAB_tx, county_name == "Bexar") %>% 
-#   dplyr::select(date, file, Cupressaceae) %>%
-#   pivot_wider(names_from = file, values_from = Cupressaceae) %>%
-#   setNames(., c("date", "San_198", "San_219")) %>%
-#   ggplot(aes(x= San_198 + 1, y = San_219 + 1)) + geom_point() + theme_few() + scale_x_log10() + scale_y_log10() + geom_abline(slope = 1, lty = 2) + 
-#   xlab("Station 198 (pollen grains/m3)") + ylab("Station 219 (pollen grains/m3)") #+ geom_smooth(method = "lm")
-# 
-# filter(NAB_tx, county_name == "McLennan") %>% 
-#   dplyr::select(date, file, Cupressaceae) %>%
-#   pivot_wider(names_from = file, values_from = Cupressaceae) %>%
-#   setNames(., c("date", "Waco_105", "Waco_106")) %>%
-#   mutate(doy = yday(date)) %>%
-#   ggplot(aes(x= Waco_105 + 1, y = Waco_106 + 1, color = doy)) + geom_point() + theme_few() + scale_x_log10() + scale_y_log10() + geom_abline(slope = 1, lty = 2) + 
-#   xlab("Station 105 (pollen grains/m3)") + ylab("Station 106 (pollen grains/m3)") #+ geom_smooth(method = "lm")
+# ### exploring data ###################################################
+# opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_child_25km_200916.csv", guess_max = 8260)
+# opa_day_adult <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_adult_25km_200916.csv", guess_max = 8260)
 # 
 # 
-# NAB_tx %>% mutate(doy = yday(date),
-#                   year = year(date)) %>%
-#   ggplot(aes(x= doy, y = Cupressaceae + 1, color = year)) + geom_point(alpha = 0.5) + geom_line(aes(y=rollmean((Cupressaceae + 1), 14, na.pad=TRUE))) +
-#   facet_wrap(~file) + scale_y_log10() + 
-#   scale_color_viridis_c() + theme_few() 
-
-filter(opa_day, county_name == "Dallas") %>% #, 
-     #  doy > 350 | doy < 50) %>%
-ggplot(aes(x = date, y = pbir_child, color = gtrend_common_cold)) + geom_point(alpha = 0.9, size = 2) + theme_few() +
-  #ylab("asthma-related ED visits per 100,000 person years in Travis County") +
-  ylab("asthma-related ED visits per 10,000 people per day") + 
-  #ylab("rhino virus modeled incidence") + 
-  scale_color_viridis_c() + #limits = c(0, 150) name = "var"
-  scale_x_date(breaks = scales::pretty_breaks(n = 20)) + #, limits = as.Date(c('2016-02-14','2016-05-01'))) +
-  geom_line(aes(x = date, y=rollmean(pbir_child, 14, na.pad=TRUE, color = "gray")), inherit.aes = FALSE)
+# ### fig 2: time series of each var ############################################################
+# names(opa_day)
+# 
+# #time series for ED visits: children
+# pbir_global_mean <- opa_day %>% #the average across all the study areas
+#   group_by(date) %>% 
+#   summarize(pbir_global_mean = mean(pbir)) 
+# panel_ed <-  
+#   opa_day %>% 
+#   ggplot(aes(x = date, y = pbir, col = NAB_station)) + theme_few() + 
+#   geom_line(aes(x = date, y=rollmean((pbir ), 7, na.pad=TRUE)), alpha = 0.3) +
+#   geom_line(data = pbir_global_mean, aes(x = date, y = rollmean(pbir_global_mean, 7, na.pad=TRUE)), col = "black") +
+#   coord_cartesian(ylim = c(0, 0.55)) +  scale_color_grey() +
+#   ylab("Asthma ED \n visits \n (per 10,000)") +
+#   theme(strip.text.x = element_blank(),
+#         strip.background = element_rect(colour="white", fill="white"),
+#         legend.position= "none",axis.title.x=element_blank(), axis.text.x=element_blank())
+# 
+# #time series for ED visits: adults
+# pbir_global_mean_adult <- opa_day_adult %>% #the average across all the study areas
+#   group_by(date) %>% 
+#   summarize(pbir_global_mean = mean(pbir)) 
+# 
+# panel_ed_adult <-  
+#   opa_day_adult %>% 
+#   ggplot(aes(x = date, y = pbir, col = NAB_station)) + theme_few() + 
+#   geom_line(aes(x = date, y=rollmean((pbir ), 7, na.pad=TRUE)), alpha = 0.3) +
+#   geom_line(data = pbir_global_mean_adult, aes(x = date, y = rollmean(pbir_global_mean, 7, na.pad=TRUE)), col = "black") +
+#   coord_cartesian(ylim = c(0, 0.12)) +  scale_color_grey(name = "NAB station") +
+#   ylab("Asthma ED \n visits \n (per 10,000)") +
+#   theme(strip.text.x = element_blank(),
+#         strip.background = element_rect(colour="white", fill="white"),
+#         legend.position= "none", 
+#         axis.title.x=element_blank(), axis.text.x=element_blank())
+# 
+# ## time series for pollen
+# pol_global_mean <- opa_day %>% group_by(date) %>% 
+#   summarize(cup_all_m_global = mean(cup_all_m),
+#             trees_m_global = mean(trees_m),
+#             pol_other_m_global = mean(pol_other_m))
+# 
+# panel_pol_cup <-  opa_day %>% 
+#   ggplot(aes(x = date, y = cup_all_m + 1, col = NAB_station, group = NAB_station)) + theme_few() + scale_y_log10() + 
+#     geom_line(aes(x = date, y=rollmean((cup_all_m + 1), 7, na.pad=TRUE), col = NAB_station, group = NAB_station), alpha = 0.3) + 
+#   ylab(expression(atop(pollen, (grains/m^3)))) +  scale_color_grey(name = "NAB station")+ #scale_color_discrete(name = "NAB station") + 
+#   geom_line(data = pol_global_mean, aes(x = date, y = rollmean(cup_all_m_global + 1, 7, na.pad=TRUE), col = NA, group = NA), col = "black") +
+#     theme(legend.position= "none" ) + theme(axis.title.x=element_blank(), axis.text.x=element_blank())
+# 
+# panel_pol_trees <-  opa_day %>% 
+#   ggplot(aes(x = date, y = trees_m + 1, col = NAB_station, group = NAB_station)) + theme_few() + scale_y_log10() + 
+#   geom_line(aes(x = date, y=rollmean((trees_m + 1), 7, na.pad=TRUE), col = NAB_station, group = NAB_station), alpha = 0.3) + 
+#   ylab(expression(atop(pollen, (grains/m^3)))) + scale_color_grey(name = "NAB station")+ #scale_color_discrete(name = "NAB station") + 
+#   geom_line(data = pol_global_mean, aes(x = date, y = rollmean(trees_m_global + 1, 7, na.pad=TRUE), col = NA, group = NA), col = "black") +
+#   theme(legend.position= "none" ) + theme(axis.title.x=element_blank(), axis.text.x=element_blank())
+# 
+# panel_pol_other <-  opa_day %>% 
+#   ggplot(aes(x = date, y = pol_other_m + 1, col = NAB_station, group = NAB_station)) + theme_few() + scale_y_log10() + 
+#   geom_line(aes(x = date, y=rollmean((pol_other_m + 1), 7, na.pad=TRUE), col = NAB_station, group = NAB_station), alpha = 0.3) + 
+#   ylab(expression(atop(pollen, (grains/m^3)))) + scale_color_grey(name = "NAB station")+ #scale_color_discrete(name = "NAB station") + 
+#   geom_line(data = pol_global_mean, aes(x = date, y = rollmean(pol_other_m_global + 1, 7, na.pad=TRUE), col = NA, group = NA), col = "black") +
+#   theme(legend.position= "none" ) + theme(axis.title.x=element_blank(), axis.text.x=element_blank())
+# 
+# 
+# #time series for viruses
+# panel_vir <-
+#   opa_day %>% ungroup() %>% 
+#    mutate(flu_d_perc_pos = flu_d_prop_pos * 100) %>% 
+#   #        v_tests_adj_pos_Corona_ms = v_tests_adj_pos_Corona_m/130.6684,
+#   #        v_tests_adj_pos_Rhinovirus_ms = v_tests_adj_pos_Rhinovirus_m/130.6684 ,
+#   #        v_tests_adj_pos_RSV_ms = v_tests_adj_pos_RSV_m/130.6684 ) %>% 
+#     dplyr::select(date, v_tests_perc_pos_Corona_m, v_tests_perc_pos_Rhinovirus_m, v_tests_perc_pos_RSV_m, flu_d_perc_pos) %>% 
+#     pivot_longer(cols = c(v_tests_perc_pos_Corona_m, v_tests_perc_pos_Rhinovirus_m, v_tests_perc_pos_RSV_m, flu_d_perc_pos), 
+#                  names_to = "virus_type", values_to = "positive_tests") %>% 
+#     distinct() %>% 
+#     #filter(date > mdy("10 - 31 - 2015")) %>% 
+#     arrange(virus_type, date) %>% 
+#     ggplot(aes(x = date, y = positive_tests, color = virus_type)) + theme_few() + 
+#     geom_step() + #geom_point() +
+#     ylab(expression(atop("positive tests", "(%)"))) +
+#     scale_color_viridis_d(breaks = c("flu_d_perc_pos", "v_tests_perc_pos_Corona_m", "v_tests_perc_pos_Rhinovirus_m",
+#                                     "v_tests_perc_pos_RSV_m"), option = "viridis",
+#                        labels = c("Influenza" ,"Seasonal coronavirus", "Rhinovirus","RSV"), name = "virus type") +
+#     theme(strip.text.x = element_blank(),
+#           strip.background = element_rect(colour="white", fill="white"),
+#           legend.position= "none")#c(0.75, 0.75))
+# 
+# #putting together the time series into one plot  
+# ts_panels <- cowplot::plot_grid(panel_ed, panel_ed_adult, 
+#                                 panel_pol_cup, panel_pol_trees, panel_pol_other, panel_vir, 
+#                                 align = "v", ncol = 1, rel_heights = c(1, 1, 1, 1, 1, 1),
+#                                 labels = c("A) Pediatric ARED", "B) Adult ARED", "C) Cupressaceae pollen", "D) tree pollen",
+#                                            "E) other pollen","F) Viruses"),
+#                                 label_size = 11,
+#                                 label_x = 0.17, label_y = 0.8,
+#                                 hjust = 0, vjust = 0)
+# ggsave(file = "C:/Users/dsk856/Desktop/thcic_analysis/time_series_fig_200916.jpg", plot = ts_panels, 
+#        height =20, width = 17, units = "cm", dpi = 300)  
+# 
+# 
+# 
+# 
+# #comparing pollen to ED visits for asthma over time
+# names(opa_day)
+# panel_a <- opa_day %>%
+# filter(date > ymd("2015 - 11 - 01")) %>%
+# filter(NAB_station == "San Antonio A") %>%
+#   ggplot(aes(x = date, y = n_cases)) + theme_few() +  
+#   geom_point(alpha = 0.2)  +  ylab("number of asthma ED visits") + # ylab("PBIR (asthma ED visits per 10,000 residents)") + #+ geom_smooth(method = "lm", se = FALSE, color = "gray")
+#   xlab("") + #scale_color_viridis_c(name = "pollen grains per m3") +
+#   geom_line(aes(x = date, y=rollmean(n_cases, 7, na.pad=TRUE)), color = "black")
+# panel_b <- opa_day %>% 
+#   filter(date > ymd("2015 - 11 - 01")) %>%
+#   filter(NAB_station == "San Antonio A") %>%
+#   ggplot(aes(x = date, y = log(ja + 1))) + theme_few() +  #scale_x_log10() + 
+#   geom_point(alpha = 0.2)  +  ylab("log(pollen grains/m3)") + # ylab("PBIR (asthma ED visits per 10,000 residents)") + #+ geom_smooth(method = "lm", se = FALSE, color = "gray")
+#   xlab("") + #scale_color_viridis_c(name = "pollen grains per m3") +
+#   geom_line(aes(x = date, y=rollmean(log(ja + 1), 7, na.pad=TRUE)), color = "black")
+# panel_c <- opa_day %>% 
+#   filter(date > ymd("2015 - 11 - 01")) %>%
+#   filter(NAB_station == "San Antonio A") %>%
+#   ggplot(aes(x = date, y = log(cup_other_rfint_log_mean + 1))) + theme_few() +  #scale_x_log10() + 
+#   geom_point(alpha = 0.2)  +  ylab("log(pollen grains/m3)") + # ylab("PBIR (asthma ED visits per 10,000 residents)") + #+ geom_smooth(method = "lm", se = FALSE, color = "gray")
+#   xlab("") + #scale_color_viridis_c(name = "pollen grains per m3") +
+#   geom_line(aes(x = date, y=rollmean(log(cup_other_rfint_log_mean + 1), 7, na.pad=TRUE)), color = "black")
+# panel_d <- opa_day %>% 
+#   filter(date > ymd("2015 - 11 - 01")) %>%
+#   filter(NAB_station == "San Antonio A") %>%
+#   ggplot(aes(x = date, y = log(trees + 1))) + theme_few() +  #scale_x_log10() + 
+#   geom_point(alpha = 0.2)  +  ylab("log(pollen grains/m3)") + # ylab("PBIR (asthma ED visits per 10,000 residents)") + #+ geom_smooth(method = "lm", se = FALSE, color = "gray")
+#   xlab("") + #scale_color_viridis_c(name = "pollen grains per m3") +
+#   geom_line(aes(x = date, y=rollmean(log(trees + 1), 7, na.pad=TRUE)), color = "black")
+# panel_e <- opa_day %>% 
+#   filter(date > ymd("2015 - 11 - 01")) %>%
+#   filter(NAB_station == "San Antonio A") %>%
+#   ggplot(aes(x = date, y = log(pol_other + 1))) + theme_few() +  #scale_x_log10() + 
+#   geom_point(alpha = 0.2)  +  ylab("log(pollen grains/m3)") + # ylab("PBIR (asthma ED visits per 10,000 residents)") + #+ geom_smooth(method = "lm", se = FALSE, color = "gray")
+#   xlab("") + #scale_color_viridis_c(name = "pollen grains per m3") +
+#   geom_line(aes(x = date, y=rollmean(log(pol_other + 1), 7, na.pad=TRUE)), color = "black")
+# 
+# cowplot::plot_grid(panel_a, panel_b, panel_c, panel_d, panel_e, nrow = 5, 
+#                    labels = c("ED visits", "J. ashei", "other Cupressaceae", "trees", "other pollen"))
+# 
+#   
+#   opa_day %>%
+#     filter(date > ymd("2015 - 11 - 01")) %>%
+#     filter(NAB_station == "Houston" | NAB_station == "Dallas" | NAB_station == "San Antonio A") %>%
+#     ggplot(aes(x = date, y = n_cases, color = v_tests_pos_RSV )) + theme_few() +  facet_wrap(~NAB_station, scale = "free_y", ncol = 1) + #scale_x_log10() + 
+#     geom_point()  +  ylab("number of asthma ED visits") + # ylab("PBIR (asthma ED visits per 10,000 residents)") + #+ geom_smooth(method = "lm", se = FALSE, color = "gray")
+#     xlab("") + scale_color_viridis_c() +
+#     geom_line(aes(x = date, y=rollmean(n_cases, 7, na.pad=TRUE)), color = "black")
+#   
+#   opa_day %>%
+#     filter(date > ymd("2015 - 11 - 01")) %>%
+#     filter(NAB_station == "Georgetown" ) %>%
+#     ggplot(aes(x = date, y = tot_pol +1 )) + theme_bw() +  #facet_wrap(~NAB_station, scale = "free_y", ncol = 1) + #scale_x_log10() + 
+#     geom_point()  +  ylab("airborne pollen (grains/m3)") + # ylab("PBIR (asthma ED visits per 10,000 residents)") + #+ geom_smooth(method = "lm", se = FALSE, color = "gray")
+#     xlab("") + #+ scale_color_viridis_c(name = "max temp (C)") +
+#     #geom_line(aes(x = date, y= tot_pol_m7 + 1)) +
+#     scale_x_date(breaks = pretty_breaks(15)) +
+#     scale_y_log10()
+#   
+#   opa_day %>%
+#     filter(date > ymd("2015 - 11 - 01")) %>%
+#     filter(NAB_station == "Houston" | NAB_station == "Dallas" | NAB_station == "San Antonio A") %>%
+#     ggplot(aes(x = date, y = met_tmaxdegc )) + theme_few() +  facet_wrap(~NAB_station, scale = "free_y", ncol = 1) + #scale_x_log10() + 
+#     #geom_point()  +  
+#     ylab("temperature (C)") + # ylab("PBIR (asthma ED visits per 10,000 residents)") + #+ geom_smooth(method = "lm", se = FALSE, color = "gray")
+#     #xlab("") + 
+#     geom_line(aes(x = date, y=rollmean(n_cases, 3, na.pad=TRUE), col = log10(tot_pol + 1)), lwd = 2) +
+#     geom_line(aes(x = date, y=rollmean(met_tmaxdegc, 7, na.pad=TRUE)), color = "red") +
+#      scale_y_continuous("ED visits", sec.axis = sec_axis(~ . , name = "temperature")) +
+#     theme(      axis.title.y.right = element_text(color = "red")) +
+#     scale_color_viridis_c()
+#   
+# opa_day %>%
+#   ggplot(aes(y = tot_pol, x = met_tmaxdegc, col = doy)) + theme_few() +  facet_wrap(~NAB_station) + scale_y_log10() +  #facet_wrap(~year, ncol = 1) + #
+#   geom_point() + xlab("maximum temp (C)") + ylab("pollen grains per m3") + #geom_smooth(method = "lm", se = FALSE)  + 
+#   scale_color_viridis_c(name = "day of year")#ylab("PBIR (asthma ED visits per 10,000 residents)")  
+#   
+# opa_day %>% ungroup() %>%
+#   filter(NAB_station == "San Antonio A" | NAB_station == "Dallas" | NAB_station == "Houston") %>%
+#   filter(date > ymd("2015-11-01")) %>%
+#   filter(year == 2016) %>%
+#   ggplot(aes(x = date, y = tot_pol_stan )) + theme_bw() +  facet_wrap(~NAB_station, ncol = 1) +#+ facet_wrap(~year, ncol = 1) + #+ scale_y_log10() + 
+#   geom_line(aes(x = date , y=rollmean(log10(tot_pol + 1) * 25, 7, na.pad=TRUE)), color = "blue") +
+#   geom_line(aes(x = date , y=rollmean(v_tests_pos_Rhinovirus * 0.3, 7, na.pad=TRUE)), color = "green") +
+#   geom_line(aes(x = date, y=rollmean(pbir * 175, 7, na.pad=TRUE)), color = "red") +
+#   coord_cartesian(ylim = c(0, 100)) +
+#   scale_x_date(breaks = pretty_breaks(30)) +
+#   ylab("variable scaled to 100")
+# #ylab("PBIR (asthma ED visits per 10,000 residents)")  
+# 
+# test <- filter(opa_day, MSA == "San Antonio-New Braunfels")
+# ccf(test$hits_day_adj_pollen, test$tot_pol)
+# ccf(test$hits_day_adj_pollen, test$pbir_child)
+# 
+# opa_day %>% ungroup() %>% #unique(opa_day$NAB_station)
+#   filter(date > ymd("2015-11-01")) %>%
+#   #filter(year == 2017) %>%
+#   #filter(NAB_station == "San Antonio B" | NAB_station == "San Antonio A" ) %>%
+#   #filter(NAB_station == "Waco B" | NAB_station == "Waco A" ) %>%
+#   filter(NAB_station == "Dallas" | NAB_station == "Flower Mound" ) %>%
+#   #filter(NAB_station == "Houston" | NAB_station == "Dallas" | NAB_station == "San Antonio A" | NAB_station == "Georgetown") %>%
+#   #filter(NAB_station == "Flower Mound" | NAB_station == "San Antonio B" | NAB_station == "San Antonio A" | NAB_station == "Georgetown") %>%
+#   ggplot(aes(x = date, y = pbir * 500 , col = log10(tot_pol+ 1) )) + theme_bw() +  facet_wrap(~NAB_station, ncol = 1) +
+#   scale_color_viridis_c() +
+#   #geom_line( lwd = 2) + 
+#   geom_line(aes(x = date - 10, y=rollmean(pbir * 1000, 7, na.pad=TRUE)), color = "red", lwd = 2) + 
+#   geom_point(aes(x = date, y = 50 * log(tot_pol + 1)))+
+#   geom_line(aes(x = date, y = v_tests_pos_Adenovirus), color = "pink")+
+#   geom_line(aes(x = date, y = v_tests_pos_HMPV), color = "pink")+
+#   geom_line(aes(x = date, y = v_tests_pos_Corona), color = "green")+
+#   geom_line(aes(x = date, y = v_tests_pos_Rhinovirus), color = "blue")+
+#   geom_line(aes(x = date, y = v_tests_pos_RSV), color = "goldenrod")+
+#   geom_line(aes(x = date, y = v_tests_pos_Parainfluenza), color = "pink") 
+#   
+# opa_day %>%
+# filter(NAB_station == "Dallas") %>%
+# #filter(year == 2016) %>%
+# ggplot(aes(x = date, y = pbir, col = (tot_pol + 1))) + geom_point(size = 2) + theme_bw() + 
+#   scale_color_viridis_c(trans = "log10", name = "total pollen (g/m3)") +
+#   scale_x_date(breaks = pretty_breaks(20)) + ylab("PBIR (Asthma ED visits per 10,000 residents)") +#scale_y_log10()  + 
+#   geom_line(aes(x = date, y=rollmean(pbir, 14, na.pad=TRUE)), color = "red") 
+#   #geom_line(aes(x = date, y=rollmean(log10(tot_pol + 1)/10, 3, na.pad=TRUE)), color = "blue") 
+# 
+# 
+# # #overlap between San Antonio datasets?
+# # filter(NAB_tx, county_name == "Bexar") %>%
+# #   ggplot(aes(x = date, y = Cupressaceae, color = file)) + geom_point() + facet_wrap(~file, ncol = 1)
+# # 
+# # filter(NAB_tx, county_name == "Bexar") %>% 
+# #   dplyr::select(date, file, Cupressaceae) %>%
+# #   pivot_wider(names_from = file, values_from = Cupressaceae) %>%
+# #   setNames(., c("date", "San_198", "San_219")) %>%
+# #   ggplot(aes(x= San_198 + 1, y = San_219 + 1)) + geom_point() + theme_few() + scale_x_log10() + scale_y_log10() + geom_abline(slope = 1, lty = 2) + 
+# #   xlab("Station 198 (pollen grains/m3)") + ylab("Station 219 (pollen grains/m3)") #+ geom_smooth(method = "lm")
+# # 
+# # filter(NAB_tx, county_name == "McLennan") %>% 
+# #   dplyr::select(date, file, Cupressaceae) %>%
+# #   pivot_wider(names_from = file, values_from = Cupressaceae) %>%
+# #   setNames(., c("date", "Waco_105", "Waco_106")) %>%
+# #   mutate(doy = yday(date)) %>%
+# #   ggplot(aes(x= Waco_105 + 1, y = Waco_106 + 1, color = doy)) + geom_point() + theme_few() + scale_x_log10() + scale_y_log10() + geom_abline(slope = 1, lty = 2) + 
+# #   xlab("Station 105 (pollen grains/m3)") + ylab("Station 106 (pollen grains/m3)") #+ geom_smooth(method = "lm")
+# # 
+# # 
+# # NAB_tx %>% mutate(doy = yday(date),
+# #                   year = year(date)) %>%
+# #   ggplot(aes(x= doy, y = Cupressaceae + 1, color = year)) + geom_point(alpha = 0.5) + geom_line(aes(y=rollmean((Cupressaceae + 1), 14, na.pad=TRUE))) +
+# #   facet_wrap(~file) + scale_y_log10() + 
+# #   scale_color_viridis_c() + theme_few() 
+# 
+# filter(opa_day, county_name == "Dallas") %>% #, 
+#      #  doy > 350 | doy < 50) %>%
+# ggplot(aes(x = date, y = pbir_child, color = gtrend_common_cold)) + geom_point(alpha = 0.9, size = 2) + theme_few() +
+#   #ylab("asthma-related ED visits per 100,000 person years in Travis County") +
+#   ylab("asthma-related ED visits per 10,000 people per day") + 
+#   #ylab("rhino virus modeled incidence") + 
+#   scale_color_viridis_c() + #limits = c(0, 150) name = "var"
+#   scale_x_date(breaks = scales::pretty_breaks(n = 20)) + #, limits = as.Date(c('2016-02-14','2016-05-01'))) +
+#   geom_line(aes(x = date, y=rollmean(pbir_child, 14, na.pad=TRUE, color = "gray")), inherit.aes = FALSE)
 
 
 
@@ -671,7 +678,8 @@ library(MASS)
 
 #opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_child_25km_200918.csv", guess_max = 8260) #opa_day_child_200910.csv
 #opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_child_10km_200918.csv", guess_max = 8260) 
-opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_child_50km_200918.csv", guess_max = 8260) 
+#opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_child_50km_200918.csv", guess_max = 8260) 
+opa_day <- opa_day_agegroup_x
 
 opa_day %>% #group_by(NAB_station) %>% 
   summarize(total_cases = sum(n_cases), PBIR_mean = mean(pbir))
@@ -688,6 +696,7 @@ data_for_model <- opa_day %>%
     log_child_pop = log(children_pop),
     child_pop = children_pop,
     log_adult_pop = log(adult_pop),
+    log_agegroup_x_pop = log(agegroup_x_pop),
     NAB_station_n = as.numeric(as.factor(NAB_station)),
     met_prcp_flag = ifelse(met_prcpmmday > 0, 1, 0),
     met_prcpmmday_l = log(met_prcpmmday + 1),
@@ -698,7 +707,7 @@ data_for_model <- opa_day %>%
     met_tavg_s = scale(met_tmaxdegc + met_tmindegc),
     met_vpPa_s = scale(met_vpPa)
   ) %>%
-  dplyr::select(NAB_station, date, n_cases, pbir, child_pop, log_child_pop, adult_pop, log_adult_pop,
+  dplyr::select(NAB_station, date, n_cases, pbir, child_pop, log_child_pop, adult_pop, log_adult_pop, agegroup_x_pop, log_agegroup_x_pop,
                 week_day,
                 ja_lm, #ja_rfint_log_mean, ja_l,
                 #cup_other_lm, #cup_other_lms, 
@@ -720,6 +729,7 @@ data_for_model <- opa_day %>%
                 met_prcpmmday_l, met_prcpmmday_ls, met_sradWm2_s, met_tmaxdegc_s, met_tmindegc_s, met_vpPa_s, met_tavg_s, met_prcp_flag
   ) %>%
   arrange(NAB_station, date) %>%
+  ungroup() %>%  #to avoid an error with filtering the complete cases on the next line: https://stackoverflow.com/questions/59603972/result-must-have-length-error-with-complete-cases 
   filter(complete.cases(.)) %>% 
   #filter(   NAB_station != "Waco B") %>% # NAB_station != "Waco A",   # NAB_station != "College Station") %>% 
   group_by(NAB_station) %>% 
@@ -744,7 +754,7 @@ pol_other_lag <- crossbasis(data_for_model$pol_other_lm, lag = 7,
 
 #glm.nb can be substituted in, but doesn't seem to change much
 model1 <- glm.nb(n_cases ~ NAB_station + 
-                offset(log(child_pop)) + #offset(log(adult_pop))
+                   offset(log(agegroup_x_pop)) +  #offset(log(child_pop)) + #offset(log(adult_pop))
                 ja_lag +  trees_lag + #pol_other_lag + 
                  # v_tests_pos_Rhinovirus_ms+
                  # v_tests_pos_RSV_ms+
@@ -820,7 +830,9 @@ child_RR_x_cup_25km <-
                      upper = pred1_ja$allRRhigh) %>% 
 ggplot(aes(x = pol_conc, y = mean, ymin = lower, ymax = upper))+
   geom_ribbon(alpha=0.1)+ geom_line()+ geom_hline(lty=2, yintercept = 1)+ # horizontal reference line at no change in odds
-  xlab(expression(paste("Cupressaceae (pollen grains / m"^"3",")")))+ ylab('RR')+theme_few() + scale_x_log10()
+  xlab(expression(paste("Cupressaceae (pollen grains / m"^"3",")")))+ ylab('RR')+theme_few() + scale_x_log10() +
+  ggtitle(paste0("ages ", age_low, "-", age_hi, "  n_cases = ", sum(data_for_model$n_cases)))
+  
 
 # plot.crosspred(pred1_ja, "contour", cumul = TRUE, #trace(plot.crosspred, edit = TRUE)
 #      plot.title = title(xlab = expression(paste("log10(Cupressaceae pollen grains m"^"3",")")), 
@@ -832,9 +844,9 @@ child_lag_RR_x_cup_25km <-
                 pol_conc_exp = 10^pol_conc) %>% 
 ggplot(aes(x = pol_conc_exp, y = lag, z = RR)) + geom_contour_filled(bins = 15) + theme_few() +
   xlab(expression(paste("Cupressaceae (pollen grains / m"^"3",")")))+ scale_x_log10() +
-  scale_fill_viridis_d(option = "magma", direction = -1, name = "RR") #, begin = 0.3, end = 1) #automatically bins and turns to factor
+  scale_fill_viridis_d(option = "magma", direction = -1, name = "RR") + #, begin = 0.3, end = 1)  #automatically bins and turns to factor
   #scale_fill_brewer(palette = "RdYlBu")
-
+  ggtitle(paste0("  n_pop = ", sum(pop_near_NAB_agegroup_x$agegroup_x_pop)))
 
 ## trees #
 pred1_trees <- crosspred(trees_lag,  model2, cen = 0, cumul = TRUE,
@@ -963,34 +975,44 @@ attr_t_cup <- attrdl(x = data_for_model$cup_all_lm, basis = ja_lag, cases = data
 attr_t_trees <- attrdl(x = data_for_model$trees_lm, basis = trees_lag, cases = data_for_model$n_cases, model = model2, dir = "back", sim = FALSE,
                      cen = 0, tot = FALSE, type = "an", range = NULL)
 
-attr_t_rhino <- (c(rep(NA, 15), model2$fitted.values) - model_pred_no_rhino)
+attr_t_rhino <- (c(rep(NA, 15), model2$fitted.values) - model_pred_no_rhino) #hist(attr_t_cup)
 attr_t_corona <- (c(rep(NA, 15), model2$fitted.values) - model_pred_no_corona)
 attr_t_flu <- (c(rep(NA, 15), model2$fitted.values) - model_pred_no_flu)
 
-attr_t_baseline <- c(rep(NA, 15), model2$fitted.values)
+attr_t_baseline <- c(rep(NA, 15), model2$fitted.values) #hist(model2$fitted.values)
 attr_df <- data.frame(attr_t_cup, attr_t_trees, attr_t_rhino, attr_t_corona, attr_t_flu, attr_t_baseline)
+attr_df[attr_df < 0] <- 0 #removing net protective effects of all variables
 
-attr_df_p <- attr_df/attr_t_baseline
-summary(attr_df_p)
+# attr_df_p <- attr_df/attr_t_baseline
+# summary(attr_df_p)
 attr_full_df <- bind_cols(data_for_model, attr_df) %>% 
-  dplyr::select(date, NAB_station, child_pop, attr_t_cup, attr_t_trees, attr_t_rhino, attr_t_corona, attr_t_flu) %>% 
-  pivot_longer(cols = contains("attr_t_"), names_to = "var", values_to = "prop_risk") %>% 
+  mutate(attr_t_unexplained = attr_t_baseline - attr_t_cup - attr_t_trees - attr_t_rhino - attr_t_corona - attr_t_flu) %>% 
+  dplyr::select(date, NAB_station, agegroup_x_pop, 
+                attr_t_unexplained, attr_t_cup, attr_t_trees, attr_t_rhino, attr_t_corona, attr_t_flu) %>% 
+  pivot_longer(cols = contains("attr_t_"), names_to = "var", values_to = "risk_cases") %>% 
   mutate(week = week(date)) %>% 
-  group_by(NAB_station, child_pop, week, var) %>% 
-  summarize(prop_risk = mean(prop_risk)) %>% 
-  mutate(attr_risk_var_unorder = forcats::fct_recode(var, Rhinovirus = "attr_t_rhino", Corona = "attr_t_corona", Influenza = "attr_t_flu",
+  group_by(NAB_station, agegroup_x_pop, week, var) %>% 
+  summarize(risk_cases = mean(risk_cases)) %>% 
+  mutate(attr_risk_var_unorder = forcats::fct_recode(var, unexplained = "attr_t_unexplained",
+                                                     Rhinovirus = "attr_t_rhino", Corona = "attr_t_corona", Influenza = "attr_t_flu",
                                               Cupressaceae = "attr_t_cup", trees = "attr_t_trees"),
-         attr_risk_var = forcats::fct_relevel(attr_risk_var_unorder, c("Rhinovirus", "Corona", "Influenza", "Cupressaceae", "trees")),
+         attr_risk_var = forcats::fct_relevel(attr_risk_var_unorder, c("Rhinovirus", "Corona", "Influenza", "Cupressaceae", "trees",
+                                                                       "unexplained")),
          date2 = lubridate::ymd( "2016-01-01" ) + lubridate::weeks( week - 1 ))
          
+observed_ncases_t <- data_for_model %>% 
+  dplyr::select(NAB_station, agegroup_x_pop, date, n_cases) %>% 
+  mutate(week = week(date),
+         date2 = lubridate::ymd( "2016-01-01" ) + lubridate::weeks( week - 1 )) %>% 
+  group_by(NAB_station, agegroup_x_pop, week, date2) %>% 
+  summarize(mean_cases = mean(n_cases)) %>% 
+  mutate(attr_risk_var = "observed cases")
 
-# names(attr_full_df)
-# ggplot(attr_full_df, aes(x = week, y = (prop_risk / child_pop) * 10000, col = var)) + facet_wrap(~NAB_station) + geom_line() + theme_bw()
-
-ggplot(attr_full_df, aes(x = date2, y = (prop_risk / child_pop) * 10000, fill = attr_risk_var)) + 
+ggplot(attr_full_df, aes(x = date2, y = (risk_cases / agegroup_x_pop) * 10000, fill = attr_risk_var)) + 
   facet_wrap(~NAB_station) + geom_area() + theme_bw() + scale_fill_viridis_d(name = "risk variable") + 
   ylab("asthma-related ED visits (per 10,000 children per day)") + xlab("date") +
-  scale_x_date(labels = date_format("%b")) + coord_cartesian(ylim = c(0.02, 0.5))
+  scale_x_date(labels = date_format("%b")) + coord_cartesian(ylim = c(0.02, 0.5)) +
+  geom_step(data = observed_ncases_t, aes( x = date2, y =(mean_cases / agegroup_x_pop) * 10000), color = "red")
 
 
 
