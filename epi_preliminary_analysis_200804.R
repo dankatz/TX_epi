@@ -35,7 +35,7 @@ NAB_tx <- left_join(NAB, NAB_locations) %>%
   filter(State == "TX") %>%
   mutate(date = ymd(Date),
          doy = yday(date),
-         ja = case_when( doy < 60   ~ Cupressaceae,
+         ja = case_when( doy < 60  ~ Cupressaceae,
                          doy > 345 ~ Cupressaceae,
                          TRUE ~ 0),
          cup_other = case_when(ja == 0 ~ Cupressaceae,
@@ -52,7 +52,7 @@ NAB_tx <- left_join(NAB, NAB_locations) %>%
 
 
 NAB_tx <- left_join(NAB_modeled, NAB_tx) %>% 
-  select(-file) #names(NAB_tx)
+  dplyr::select(-file) #names(NAB_tx)
 
 NAB_tx <- left_join(NAB_tx, NAB_locations) %>%  #have to do a second join with location data due to some unfortunate formatting
   dplyr::select(date, doy, file, City, FIPS, county_name, MSA, Lat, Long, NABStation_ID, 
@@ -73,28 +73,23 @@ NAB_tx <- left_join(NAB_tx, NAB_locations) %>%  #have to do a second join with l
          pol_other = case_when(tot_pol == 0 & NAB_station == "Waco B" ~ NA_real_, TRUE ~ pol_other),
          tot_pol = case_when(tot_pol == 0 & NAB_station == "Waco B" ~ NA_real_, TRUE ~ tot_pol)) %>% 
   mutate(ja_m =  case_when(is.na(ja) ~ exp(ja_rfint_log_mean) -1 , !is.na(ja) ~ ja),
-         cup_all_m =  case_when(is.na(ja) ~ exp(cup_other_rfint_log_mean) + exp(ja_rfint_log_mean) -1 , !is.na(ja) ~ ja + cup_other),
-         trees_m = case_when(is.na(trees) ~ exp(trees_rfint_log_mean), !is.na(trees) ~ trees),
-         pol_other_m = case_when(is.na(pol_other) ~ exp(pol_other_rfint_log_mean), !is.na(pol_other) ~ pol_other),
+         cup_all_m =  case_when(is.na(ja) ~ exp(cup_other_rfint_log_mean) - 1 + exp(ja_rfint_log_mean) -1 , !is.na(ja) ~ ja + cup_other),
+         trees_m = case_when(is.na(trees) ~ exp(trees_rfint_log_mean) -1, !is.na(trees) ~ trees),
+         pol_other_m = case_when(is.na(pol_other) ~ exp(pol_other_rfint_log_mean) - 1, !is.na(pol_other) ~ pol_other),
          ja_lm = log10(ja_m + 1),
          cup_all_lm = log10(cup_all_m + 1),
          trees_lm = log10(trees_m + 1),
          pol_other_lm = log10(pol_other_m + 1))
 
+#comparing modeled to observed pollen concentrations
+# filter(NAB_tx, date > ymd("2015-10-1") & date < ymd("2018-01-01")) %>% #summarise(n = n())
+# ggplot(aes( x = date, y = cup_all_m )) + geom_point(color = "red", size = 0.5) + facet_wrap(~NAB_station) +
+#   geom_point(aes(x = date, y = cup_all),  color = "gray") +  theme_bw() +  coord_cartesian(ylim = c(0, 15)) #scale_y_log10() +
+# 
+# filter(NAB_tx, date > ymd("2015-10-1") & date < ymd("2018-01-01")) %>% #summarise(n = n())
+#   ggplot(aes( x = date, y = trees_m )) + geom_point(color = "red", size = 0.5) + facet_wrap(~NAB_station) +
+#   geom_point(aes(x = date, y = trees), color = "gray") +  theme_bw() +  coord_cartesian(ylim = c(0, 15)) #scale_y_log10() +
 
-#str(NAB_tx)
-#NAB_tx$PAT_COUNTY <- sprintf("%03s",NAB_tx$FIPS) %>% sub(" ", "0",.) %>% sub(" ", "0",.)
-#NAB_tx <- left_join(NAB_tx, msa)
-# filter(NAB_tx, date > ymd("2015-11-1") & date < ymd("2018-01-01")) %>% #summarise(n = n())
-#   ggplot(aes(x = date, y = Total.Pollen.Count + 0.1, color = file)) + geom_point(alpha = 0.5) + facet_wrap(~NAB_station) + theme_bw() + scale_y_log10() + ylab("pollen grains/m3") +
-#   theme(legend.position = "none")
-
-
-#counties that I have pollen data for (from 2009-2019)
-#NAB_counties <- dplyr::select(NAB_tx, FIPS) %>% distinct() %>% unlist()
-#counties that are in an MSA that I have pollen data from
-#msa_selected <- dplyr::select(NAB_tx, MSA) %>% distinct() %>% unlist()
-#NAB_MSA_counties <- msa$FIPS[msa$MSA %in% msa_selected]
 
 ### THCIC outpatient data on asthma-related ED visits #####################################################
 opa_raw <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/op_asthma.csv")
@@ -245,8 +240,8 @@ day_NAB_list <- mutate(day_NAB_list, n_cases = 0, doy = yday(date))
 # All_vars <- c(AllM, AllF)
 
 ### define target age range here 
-age_low <- 5
-age_hi <- 14
+age_low <- 5 # >=
+age_hi <- 17 # <=
 
 #Variables that I want: ages 5-17  #B01001_003
 c_vars <- c("B01001_004", "B01001_005", "B01001_006", #males from 5-17 years old
@@ -254,8 +249,8 @@ c_vars <- c("B01001_004", "B01001_005", "B01001_006", #males from 5-17 years old
 c_vars_adult <- c(paste0("B0100", 1007:1025), #males
                   paste0("B0100", 1031:1049)) %>%  #females
                   gsub(pattern = "B01001", replacement ="B01001_", x = .) #adding the underscore back in
-c_vars_agegroup_x <- c(paste0("B0100", 1004:1005), #males
-                    paste0("B0100", 1028:1029)) %>%  #females
+c_vars_agegroup_x <- c(paste0("B0100", 1004:1006), #males
+                    paste0("B0100", 1028:30)) %>%  #females
   gsub(pattern = "B01001", replacement ="B01001_", x = .) #adding the underscore back in
 
 #census_All_2017 <- get_acs(state="TX", geography="block group", year = 2017, variables=All_vars, geometry=FALSE) #takes 5 min
@@ -349,9 +344,17 @@ flu <- read.csv("C:/Users/dsk856/Desktop/misc_data/flu_daily_200916.csv") %>%
   mutate(date = ymd(date)) %>% 
   dplyr::select(-proportion_positive, -total_positive)
 
+#it appears a few days at the start didn't have data, taking data from the next week which looks like a pretty reasonable assumption
+flu$flu_d_prop_pos[flu$date == "2015-10-01" | flu$date == "2015-10-02" | flu$date == "2015-10-03" ] <- 
+  flu$flu_d_prop_pos[flu$date == "2015-10-04" ] 
+
+flu$flu_d_total_pos[flu$date == "2015-10-01" | flu$date == "2015-10-02" | flu$date == "2015-10-03" ] <- 
+  flu$flu_d_total_pos[flu$date == "2015-10-04" ] 
+
+
 #summary(flu)
-# flu %>% filter(date > mdy("10-31-2015") & date < mdy("01-01-2018")) %>% 
-# ggplot(aes(x = date, y = flu_d)) + geom_step() + theme_bw()
+# flu %>% filter(date > mdy("10-31-2015") & date < mdy("01-01-2018")) %>%
+# ggplot(aes(x = date, y = flu_d_prop_pos)) + geom_step() + theme_bw()
 
 ### combine the various datasets ######################################################################
 opa_day <- opa %>% group_by(date, NAB_station) %>% #names(opa) opa$PAT_AGE_YEARS
@@ -393,9 +396,9 @@ opa_day <- opa_day %>% ungroup() %>% group_by(NAB_station) %>% arrange(NAB_stati
 #for agegroup_x
 opa_day_agegroup_x <- mutate(opa_day, pbir = ((n_cases/agegroup_x_pop) * 10000), #PIBR per 10,000 for children
                   pbir_py = (pbir / ((agegroup_x_pop))) * 100000)
-write_csv(opa_day_agegroup_x, paste0("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_ages_",age_low,"_",age_hi, "_25km_200924.csv"))
+# write_csv(opa_day_agegroup_x, paste0("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_ages_",age_low,"_",age_hi, "_25km_200924.csv"))
 
-
+#summary(opa_day_agegroup_x)
 
 # ### exploring data ###################################################
 # opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_child_25km_200916.csv", guess_max = 8260)
@@ -670,11 +673,12 @@ write_csv(opa_day_agegroup_x, paste0("C:/Users/dsk856/Desktop/thcic_analysis/opa
 #### Children: analysis with a distributed lags model using dlnm package #######################################
 library(dlnm)
 library(splines)
+library(MASS)
 library(dplyr)
 library(readr)
 library(lubridate)
 library(ggplot2)
-library(MASS)
+
 
 #opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_child_25km_200918.csv", guess_max = 8260) #opa_day_child_200910.csv
 #opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_child_10km_200918.csv", guess_max = 8260) 
@@ -683,8 +687,9 @@ opa_day <- opa_day_agegroup_x
 
 opa_day %>% #group_by(NAB_station) %>% 
   summarize(total_cases = sum(n_cases), PBIR_mean = mean(pbir))
-ggplot(opa_day, aes( x = date, y = cup_all_m + 1)) + geom_point() + facet_wrap(~NAB_station) +
-  geom_point(aes(x = date, y = exp(ja_rfint_log_mean)), color = "red") + scale_y_log10()
+ggplot(opa_day, aes( x = date, y = cup_all + 1))  + facet_wrap(~NAB_station) + theme_bw()+ scale_y_log10() + 
+  geom_point(color = "black") +
+  geom_point(aes(x = date, y = cup_all_m + 1), color = "red", size = 0.5) 
 
 #str(data_for_model)
 #names(opa_day)
@@ -724,9 +729,9 @@ data_for_model <- opa_day %>%
                 v_tests_adj_pos_RSV_m,
                 v_tests_adj_pos_Corona_m,
                 flu_d_prop_pos, 
-                flu_d_total_pos,
-                met_prcpmmday, met_sradWm2, met_tmaxdegc, met_tmindegc, met_vpPa, #hist(data_for_model$met_prcpmmday_ls)
-                met_prcpmmday_l, met_prcpmmday_ls, met_sradWm2_s, met_tmaxdegc_s, met_tmindegc_s, met_vpPa_s, met_tavg_s, met_prcp_flag
+                flu_d_total_pos #,
+                # met_prcpmmday, met_sradWm2, met_tmaxdegc, met_tmindegc, met_vpPa, #hist(data_for_model$met_prcpmmday_ls)
+                # met_prcpmmday_l, met_prcpmmday_ls, met_sradWm2_s, met_tmaxdegc_s, met_tmindegc_s, met_vpPa_s, met_tavg_s, met_prcp_flag
   ) %>%
   arrange(NAB_station, date) %>%
   ungroup() %>%  #to avoid an error with filtering the complete cases on the next line: https://stackoverflow.com/questions/59603972/result-must-have-length-error-with-complete-cases 
@@ -743,45 +748,41 @@ summary(data_for_model)
 #polynomial distributed lag
 # ja_lag <- crossbasis(data_for_model$ja_lm, lag = 21,
 #                           argvar=list("bs",degree=2,df=3), arglag = list(fun = "poly", degree = 3)) #hist(data_for_model$ja_lm)
-ja_lag <- crossbasis(data_for_model$cup_all_lm, lag = 14,
-                     argvar=list(fun = "poly", degree = 3), arglag = list(fun = "poly", degree = 4)) #hist(data_for_model$ja_lm) #str(ja_lag)
 
-trees_lag <- crossbasis(data_for_model$trees_lm, lag = 14, 
-                        argvar=list(fun = "poly", degree = 4), arglag = list(fun = "poly", degree = 2))
+max_lag <- 30
+cup_lag <- crossbasis(data_for_model$cup_all_lm, lag = max_lag,
+                     argvar=list(fun = "poly", degree = 3), arglag = list(fun = "poly", degree = 3)) #hist(data_for_model$ja_lm) #str(ja_lag)
 
-pol_other_lag <- crossbasis(data_for_model$pol_other_lm, lag = 7,
+trees_lag <- crossbasis(data_for_model$trees_lm, lag = max_lag, 
+                        argvar=list(fun = "poly", degree = 3), arglag = list(fun = "poly", degree = 3))
+
+pol_other_lag <- crossbasis(data_for_model$pol_other_lm, lag = max_lag,
                             argvar=list(fun = "poly", degree = 3), arglag = list(fun = "poly", degree = 3))
 
 #glm.nb can be substituted in, but doesn't seem to change much
-model1 <- glm.nb(n_cases ~ NAB_station + 
-                   offset(log(agegroup_x_pop)) +  #offset(log(child_pop)) + #offset(log(adult_pop))
-                ja_lag +  trees_lag + #pol_other_lag + 
-                 # v_tests_pos_Rhinovirus_ms+
-                 # v_tests_pos_RSV_ms+
-                 # v_tests_pos_Corona_ms+
-                 # v_tests_adj_pos_Rhinovirus_m+
-                 # v_tests_adj_pos_RSV_m+
-                 # v_tests_adj_pos_Corona_m+
-                v_tests_perc_pos_Rhinovirus_m+
-                v_tests_perc_pos_RSV_m+
-                v_tests_perc_pos_Corona_m+
-                flu_d_prop_pos + #flu_d_total_pos + flu_d_prop_pos
-                week_day + 
-                #met_vpPa +
-                 # met_prcpmmday_ls +
-                 # met_tavg_s +  #met_tmindegc_s + ###met_vpPa +  humidity matters and overwrites temperature and precip
-                #met_tmaxdegc_s +
-                  met_tmindegc_s +
-                #met_sradWm2_s + #
-                #met_prcp_flag +
-                ns(time, 12),
-             #family = quasipoisson, 
-              data = data_for_model) #quasipoisson
+model1 <- glm(n_cases ~ NAB_station + #nb.glm
+                    offset(log(agegroup_x_pop)) +  #offset(log(child_pop)) + #offset(log(adult_pop))
+                    cup_lag +  trees_lag + #pol_other_lag + 
+                    v_tests_perc_pos_Rhinovirus_m+
+                    v_tests_perc_pos_RSV_m+
+                    v_tests_perc_pos_Corona_m+
+                    flu_d_prop_pos + #flu_d_total_pos + flu_d_prop_pos
+                    week_day + 
+                    #met_vpPa +
+                     # met_prcpmmday_ls +
+                     # met_tavg_s +  #met_tmindegc_s + ###met_vpPa +  humidity matters and overwrites temperature and precip
+                    #met_tmaxdegc_s +
+                    #met_tmindegc_s +
+                    #met_sradWm2_s + #
+                    #met_prcp_flag +
+                    ns(time, 12),
+             family = quasipoisson, 
+              data = data_for_model) #quasipoisson #data_for_model$agegroup_x_pop
 summary(model1)
 
 
 # INCLUDE THE 1-DAY LAGGED RESIDUAL IN THE MODEL
-resid_model1 <- c(rep(NA, 14), residuals(model1, type = "deviance"))
+resid_model1 <- c(rep(NA, max_lag), residuals(model1, type = "deviance"))
 model2 <- update(model1, .~. + tsModel::Lag(resid_model1, 1)) 
 
 # hist(model1$fitted.values, n = 100)
@@ -802,21 +803,21 @@ model2 <- update(model1, .~. + tsModel::Lag(resid_model1, 1))
 
 ### model diagnotistic plots
 #deviance residuals over time
-data_for_model %>% 
-  ungroup() %>% 
-  mutate(resid = c(rep(NA, 15), residuals(model2, type = "deviance"))) %>% 
-  ggplot(aes(x = date, y = resid)) + theme_bw() +
-  geom_point() + facet_wrap(~NAB_station) + ylab("Deviance residuals")
-
-#partial autocorrelation plots of the deviance residuals
-pacf(residuals(model1, type = "deviance"), na.action=na.omit,main="From original model")
-pacf(residuals(model2, type = "deviance"), na.action=na.omit,main="From model adjusted for residual autocorrelation")
-
-summary(model1)
-summary(model2)
+# data_for_model %>% 
+#   ungroup() %>% 
+#   mutate(resid = c(rep(NA, 15), residuals(model2, type = "deviance"))) %>% 
+#   ggplot(aes(x = date, y = resid)) + theme_bw() +
+#   geom_point() + facet_wrap(~NAB_station) + ylab("Deviance residuals")
+# 
+# #partial autocorrelation plots of the deviance residuals
+# pacf(residuals(model1, type = "deviance"), na.action=na.omit,main="From original model")
+# pacf(residuals(model2, type = "deviance"), na.action=na.omit,main="From model adjusted for residual autocorrelation")
+# 
+# summary(model1)
+# summary(model2)
 
 #cup all  
-pred1_ja <- crosspred(ja_lag,  model2, #at = 1,
+pred1_cup <- crosspred(cup_lag,  model2, #at = 1,
                       at = seq(from = 0, to = max(data_for_model$cup_all_lm), by = 0.10), 
                       bylag = 0.2, cen = 0, cumul = TRUE) #str(pred1_ja)
 
@@ -824,10 +825,10 @@ pred1_ja <- crosspred(ja_lag,  model2, #at = 1,
 #      xlab = expression(paste("log10(Cupressaceae pollen grains m"^"3",")")),
 #      ylab = "RR", main = "Overall effect of Cupressaceae pollen")
 child_RR_x_cup_25km <- 
-  data.frame(pol_conc = 10^(pred1_ja$predvar), 
-                     mean = pred1_ja$allRRfit,
-                     lower = pred1_ja$allRRlow,
-                     upper = pred1_ja$allRRhigh) %>% 
+  data.frame(pol_conc = 10^(pred1_cup$predvar), 
+                     mean = pred1_cup$allRRfit,
+                     lower = pred1_cup$allRRlow,
+                     upper = pred1_cup$allRRhigh) %>% 
 ggplot(aes(x = pol_conc, y = mean, ymin = lower, ymax = upper))+
   geom_ribbon(alpha=0.1)+ geom_line()+ geom_hline(lty=2, yintercept = 1)+ # horizontal reference line at no change in odds
   xlab(expression(paste("Cupressaceae (pollen grains / m"^"3",")")))+ ylab('RR')+theme_few() + scale_x_log10() +
@@ -838,7 +839,7 @@ ggplot(aes(x = pol_conc, y = mean, ymin = lower, ymax = upper))+
 #      plot.title = title(xlab = expression(paste("log10(Cupressaceae pollen grains m"^"3",")")), 
 #                         ylab = "Lag", main = "Cumulative RR across lags for Cupressaceae"), key.title = title("RR"))
 child_lag_RR_x_cup_25km <-
-  as.data.frame(exp(pred1_ja$cumfit)) %>% mutate(pol_conc = pred1_ja$predvar) %>% 
+  as.data.frame(exp(pred1_cup$cumfit)) %>% mutate(pol_conc = pred1_cup$predvar) %>% 
          pivot_longer(., cols = contains("lag"), names_to = "lag", values_to = "RR") %>% 
          mutate(lag = as.numeric(gsub(pattern = "lag", replacement = "", x = lag)),
                 pol_conc_exp = 10^pol_conc) %>% 
@@ -865,38 +866,51 @@ child_RR_x_trees_25km <-
   xlab(expression(paste("trees (pollen grains / m"^"3",")")))+ ylab('RR')+theme_few() + scale_x_log10()
 
 
-plot.crosspred(pred1_trees, "contour", cumul = TRUE,
-     plot.title = title(xlab = expression(paste("log10(tree pollen grains m"^"3",")")),
-                        ylab = "Lag", main = "Cumulative RR across lags for trees"), key.title = title("RR"))
+# plot.crosspred(pred1_trees, "contour", cumul = TRUE,
+#      plot.title = title(xlab = expression(paste("log10(tree pollen grains m"^"3",")")),
+#                         ylab = "Lag", main = "Cumulative RR across lags for trees"), key.title = title("RR"))
 child_lag_RR_x_trees_25km <-
   as.data.frame(exp(pred1_trees$cumfit)) %>% mutate(pol_conc = pred1_trees$predvar) %>% 
   pivot_longer(., cols = contains("lag"), names_to = "lag", values_to = "RR") %>% 
   mutate(lag = as.numeric(gsub(pattern = "lag", replacement = "", x = lag)),
          pol_conc_exp = 10^pol_conc) %>% 
   ggplot(aes(x = pol_conc_exp, y = lag, z = RR)) + geom_contour_filled(bins = 15) + theme_few() +
-  xlab(expression(paste("Cupressaceae (pollen grains / m"^"3",")")))+ scale_x_log10() +
+  xlab(expression(paste("tree pollen (pollen grains / m"^"3",")")))+ scale_x_log10() +
   scale_fill_viridis_d(option = "viridis", direction = -1, name = "RR") 
 
 
-# #pol_other
-# pred1_pol_other <- crosspred(pol_other_lag,  model2,
-#                              at = seq(from = 0, to = max(data_for_model$pol_other_lm), by = 0.1),
-#                              bylag = 0.2, cen = 0, cumul = TRUE)
+# ## pol_other
+# pred1_pol_other <- crosspred(pol_other_lag,  model2, cen = 0, cumul = TRUE,
+#                          at = seq(from = 0, to = max(data_for_model$pol_other_lm), by = .10))
+# child_RR_x_pol_other_25km <- 
+#   data.frame(pol_conc = 10^(pred1_pol_other$predvar), 
+#              mean = pred1_pol_other$allRRfit,
+#              lower = pred1_pol_other$allRRlow,
+#              upper = pred1_pol_other$allRRhigh) %>% 
+#   ggplot(aes(x = pol_conc, y = mean, ymin = lower, ymax = upper))+
+#   geom_ribbon(alpha=0.1)+ geom_line()+ geom_hline(lty=2, yintercept = 1)+ # horizontal reference line at no change in odds
+#   xlab(expression(paste("other pollen (pollen grains / m"^"3",")")))+ ylab('RR')+theme_few() + scale_x_log10()
 # 
-# plot(pred1_pol_other, "overall", ci = "lines", #ylim = c(0.95, 10), lwd = 2,
-#      xlab = "log(other pollen)", ylab = "RR", main = "Overall effect")
-# 
-# plot.crosspred(pred1_pol_other, "contour", cumul = TRUE,
-#                plot.title = title(xlab = expression(paste("log10(tree pollen grains m"^"3",")")),
-#                                   ylab = "Lag", main = "Cumulative RR across lags for trees"), key.title = title("RR"))
+# child_lag_RR_x_pol_other_25km <-
+#   as.data.frame(exp(pred1_pol_other$cumfit)) %>% mutate(pol_conc = pred1_pol_other$predvar) %>% 
+#   pivot_longer(., cols = contains("lag"), names_to = "lag", values_to = "RR") %>% 
+#   mutate(lag = as.numeric(gsub(pattern = "lag", replacement = "", x = lag)),
+#          pol_conc_exp = 10^pol_conc) %>% 
+#   ggplot(aes(x = pol_conc_exp, y = lag, z = RR)) + geom_contour_filled(bins = 15) + theme_few() +
+#   xlab(expression(paste("other pollen (pollen grains / m"^"3",")")))+ scale_x_log10() +
+#   scale_fill_viridis_d(option = "viridis", direction = -1, name = "RR") 
+
 
 #saving the figs 
 #child_pol_25km <-
   cowplot::plot_grid(child_RR_x_cup_25km, child_lag_RR_x_cup_25km, child_RR_x_trees_25km, child_lag_RR_x_trees_25km,
+                     #child_RR_x_pol_other_25km, child_lag_RR_x_pol_other_25km,
                    ncol = 2, labels = c("A) Cupressaceae pollen", 
                                         "B) Cupressaceae pollen by lag", 
                                         "C) tree pollen", 
                                         "D) tree pollen by lag"),
+                                        # "E) other pollen", 
+                                        # "F) other pollen by lag"),
                    rel_widths = c(0.8, 1, 0.8, 1),
                    label_size = 11, label_x = 0.14, label_y = 0.9, hjust = 0, vjust = 0)
 
@@ -909,7 +923,7 @@ child_lag_RR_x_trees_25km <-
 
 ### attributable risk ##########################################
 #https://github.com/gasparrini/2015_gasparrini_Lancet_Rcodedata/blob/master/attrdl.R
-cup_attr <- attrdl(x = data_for_model$cup_all_lm, basis = ja_lag, cases = data_for_model$n_cases, model = model2, dir = "back", sim = TRUE,
+cup_attr <- attrdl(x = data_for_model$cup_all_lm, basis = cup_lag, cases = data_for_model$n_cases, model = model2, dir = "back", sim = TRUE,
        cen = 0, tot = TRUE, type = "an", range = NULL, nsim = 10000)
   summary(cup_attr)
   quantile(cup_attr, probs = c(0.025, 0.95))
@@ -969,17 +983,17 @@ sum(model_pred_no_flu, na.rm = TRUE)
 
 
 ### attributable risk over time figure ################################################
-attr_t_cup <- attrdl(x = data_for_model$cup_all_lm, basis = ja_lag, cases = data_for_model$n_cases, model = model2, dir = "back", sim = FALSE,
+attr_t_cup <- attrdl(x = data_for_model$cup_all_lm, basis = cup_lag, cases = data_for_model$n_cases, model = model2, dir = "back", sim = FALSE,
                    cen = 0, tot = FALSE, type = "an", range = NULL)
 
 attr_t_trees <- attrdl(x = data_for_model$trees_lm, basis = trees_lag, cases = data_for_model$n_cases, model = model2, dir = "back", sim = FALSE,
                      cen = 0, tot = FALSE, type = "an", range = NULL)
 
-attr_t_rhino <- (c(rep(NA, 15), model2$fitted.values) - model_pred_no_rhino) #hist(attr_t_cup)
-attr_t_corona <- (c(rep(NA, 15), model2$fitted.values) - model_pred_no_corona)
-attr_t_flu <- (c(rep(NA, 15), model2$fitted.values) - model_pred_no_flu)
+attr_t_rhino <- (c(rep(NA, max_lag + 1), model2$fitted.values) - model_pred_no_rhino) #hist(attr_t_cup)
+attr_t_corona <- (c(rep(NA, max_lag + 1), model2$fitted.values) - model_pred_no_corona)
+attr_t_flu <- (c(rep(NA, max_lag + 1), model2$fitted.values) - model_pred_no_flu)
 
-attr_t_baseline <- c(rep(NA, 15), model2$fitted.values) #hist(model2$fitted.values)
+attr_t_baseline <- c(rep(NA, max_lag + 1), model2$fitted.values) #hist(model2$fitted.values)
 attr_df <- data.frame(attr_t_cup, attr_t_trees, attr_t_rhino, attr_t_corona, attr_t_flu, attr_t_baseline)
 attr_df[attr_df < 0] <- 0 #removing net protective effects of all variables
 
@@ -1006,23 +1020,43 @@ observed_ncases_t <- data_for_model %>%
          date2 = lubridate::ymd( "2016-01-01" ) + lubridate::weeks( week - 1 )) %>% 
   group_by(NAB_station, agegroup_x_pop, week, date2) %>% 
   summarize(mean_cases = mean(n_cases)) %>% 
-  mutate(attr_risk_var = "observed cases")
+  mutate(attr_risk_var = "unexplained")
 
 ggplot(attr_full_df, aes(x = date2, y = (risk_cases / agegroup_x_pop) * 10000, fill = attr_risk_var)) + 
-  facet_wrap(~NAB_station) + geom_area() + theme_bw() + scale_fill_viridis_d(name = "risk variable") + 
-  ylab("asthma-related ED visits (per 10,000 children per day)") + xlab("date") +
-  scale_x_date(labels = date_format("%b")) + coord_cartesian(ylim = c(0.02, 0.5)) +
-  geom_step(data = observed_ncases_t, aes( x = date2, y =(mean_cases / agegroup_x_pop) * 10000), color = "red")
+  facet_wrap(~NAB_station) + geom_area() + theme_bw() + scale_fill_viridis_d(name = "attributable risk") + 
+  ylab("asthma-related ED visits (per 10,000 people per day)") + xlab("date") +
+  scale_x_date(labels = date_format("%b")) + coord_cartesian(ylim = c(0.02, 0.2)) +
+  geom_step(data = observed_ncases_t, aes( x = date2, y =(mean_cases / agegroup_x_pop) * 10000, 
+                                           color = "observed cases")) + scale_color_discrete(name = "")  
+  
+  
+
+
+# # raw version
+# attr_full_df <- bind_cols(data_for_model, attr_df) %>% 
+#   mutate(attr_t_unexplained = attr_t_baseline - attr_t_cup - attr_t_trees - attr_t_rhino - attr_t_corona - attr_t_flu) %>% 
+#   dplyr::select(date, NAB_station, agegroup_x_pop, 
+#                 attr_t_unexplained, attr_t_cup, attr_t_trees, attr_t_rhino, attr_t_corona, attr_t_flu) %>% 
+#   pivot_longer(cols = contains("attr_t_"), names_to = "var", values_to = "risk_cases") 
+# observed_ncases_t <- data_for_model %>% filter(NAB_station == "San Antonio A") %>% 
+#   dplyr::select(NAB_station, agegroup_x_pop, date, n_cases) %>% 
+#   mutate(var = "unexplained")
+# attr_full_df %>% filter(NAB_station == "San Antonio A") %>% 
+# ggplot(aes(x = date, y = (risk_cases / agegroup_x_pop) * 10000, fill = var)) + 
+#   facet_wrap(~NAB_station) + geom_area() + theme_bw() + #scale_fill_viridis_d(name = "risk variable") + 
+#   ylab("asthma-related ED visits (per 10,000 people per day)") + xlab("date") +
+#   #scale_x_date(labels = date_format("%b")) + 
+#   geom_point(data = observed_ncases_t, aes( x = date, y =(n_cases / agegroup_x_pop) * 10000), color = "red") +
+#   coord_cartesian(ylim = c(0.02, 0.2)) 
 
 
 
 
 
 
-
-
-
-
+# names(data_for_model)
+# ggplot(data_for_model, aes(x = date, y = cup_all_m + 1)) + geom_point() + facet_wrap(~NAB_station) + theme_bw() +
+#   scale_y_log10()
 
 
 
