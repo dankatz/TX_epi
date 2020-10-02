@@ -5,7 +5,7 @@ library(readr)
 library(stringr)
 library(lubridate)
 library(ggplot2)
-library(Amelia)
+#library(Amelia)
 
 rm(list = ls())
 
@@ -15,26 +15,38 @@ rm(list = ls())
 NAB_locations <- read_csv("C:/Users/dsk856/Box/texas/NAB/EPHT_Pollen Station Inventory_062019_dk200331.csv")
 NAB <- read_csv("C:/Users/dsk856/Box/texas/NAB/NAB2009_2019_pollen_200508.csv", guess_max = 50000)
 
-
+names(NAB)
+summary(NAB)
+  
+  
 ### create the categories of pollen and prepare data ################################################
 NAB_tx <- left_join(NAB, NAB_locations) %>%
   filter(State == "TX") %>%
   mutate(date = ymd(Date),
          mo = month(date),
          doy = yday(date),
-         year = year(date),
-         ja = case_when( doy < 60   ~ Cupressaceae,
-                         doy > 345 ~ Cupressaceae,
-                         TRUE ~ 0),
-         cup_other = case_when(ja == 0 ~ Cupressaceae,
-                               ja > 0 ~ 0)) %>%
-rowwise()%>%
-  mutate(trees = sum(Acer, Alnus,Betula, Carpinus.Ostrya, Corylus, Fraxinus,Juglans, Liquidambar, Other.Tree.Pollen,                    
-                            Pinaceae, Populus, Pseudotsuga, Quercus, Salix, Arecaceae, Carya,Cyperaceae, Fagus, Ligustrum,
-                            Morus,  Olea, Platanus, Tilia ,Celtis,  Prosopis, Myrica, Ulmus, Tsuga, na.rm = TRUE),
-         pol_other = Total.Pollen.Count - ja - cup_other - trees)%>%  
+         year = year(date)
+         # ja = case_when( doy < 60   ~ Cupressaceae,
+         #                 doy > 345 ~ Cupressaceae,
+         #                 TRUE ~ 0),
+         # cup_other = case_when(ja == 0 ~ Cupressaceae,
+         #                       ja > 0 ~ 0)
+         ) %>%
+  rowwise()%>%
+  # mutate(trees = sum(Acer, Alnus,Betula, Carpinus.Ostrya, Corylus, Fraxinus,Juglans, Liquidambar, Other.Tree.Pollen,                    
+  #                           Pinaceae, Populus, Pseudotsuga, Quercus, Salix, Arecaceae, Carya, Cyperaceae, Fagus, Ligustrum,
+  #                           Morus,  Olea, Platanus, Tilia ,Celtis,  Prosopis, Myrica, Ulmus, Tsuga, na.rm = TRUE),
+  #        pol_other = Total.Pollen.Count - ja - cup_other - trees)%>%  
+  mutate(Fagales = sum(Alnus,Betula, Carpinus.Ostrya, Corylus, Quercus, Fagus, Myrica, na.rm = TRUE),
+         other_trees = sum(Acer,Fraxinus, Juglans, Liquidambar, Other.Tree.Pollen, Pinaceae, Populus, Pseudotsuga, Salix, 
+                           Carya, Ligustrum, Olea, Platanus, Tilia, Celtis, Tsuga, Prosopis, na.rm = TRUE),
+         other_pollen = sum(Artemisia, Asteraceae..Excluding.Ambrosia.and.Artemisia., Chenopodiaceae.Amaranthaceae,
+                                 Other.Weed.Pollen, Plantago, Rumex, Unidentified.Pollen, Arecaceae, Cyperaceae, Typha,
+                            Eupatorium, Urticaceae, na.rm = TRUE ),
+         grass = sum(Gramineae...Poaceae, Other.Grass.Pollen , na.rm = TRUE)) %>% 
   dplyr::select(date, mo, doy, year, City, FIPS, county_name, MSA, Lat, Long, NAB_station,
-                ja, cup_other, trees, pol_other, Cupressaceae,
+                #ja, cup_other, trees, pol_other, 
+                Cupressaceae, Ambrosia, Morus, Ulmus, grass, Fagales, other_trees, other_pollen,
                 tot_pol = Total.Pollen.Count) 
 
 date_station_grid <- expand_grid(seq(min(NAB$date),max(NAB$date), by = '1 day'), 
@@ -45,17 +57,63 @@ date_station_grid <- expand_grid(seq(min(NAB$date),max(NAB$date), by = '1 day'),
 pd <- left_join(date_station_grid, NAB_tx) %>%
           arrange(NAB_station, date)
 
-#Quality control for Waco B, which appears to have coded some NA values as zeros
+#QA/QC
 pd <- pd %>% 
-  #filter(NAB_station == "Waco B") %>% 
-  mutate(ja = case_when(tot_pol == 0 & NAB_station == "Waco B" ~ NA_real_, TRUE ~ ja),
-         cup_other = case_when(tot_pol == 0 & NAB_station == "Waco B" ~ NA_real_, TRUE ~ cup_other),
-         Cupressaceae = case_when(tot_pol == 0 & NAB_station == "Waco B" ~ NA_real_, TRUE ~ Cupressaceae),
-         trees = case_when(tot_pol == 0 & NAB_station == "Waco B" ~ NA_real_, TRUE ~ trees),
-         pol_other = case_when(tot_pol == 0 & NAB_station == "Waco B" ~ NA_real_, TRUE ~ pol_other),
-         tot_pol = case_when(tot_pol == 0 & NAB_station == "Waco B" ~ NA_real_, TRUE ~ tot_pol))
+  filter(NAB_station != "Waco B") %>% #Removing Waco B;
+# There appear to be substantial issues with non-measured days being recorded as 0s and with Ulmus not being distinguished from
+# unidentified pollen in 2009 and 2016.
+# I'm also deeply skeptical of how clean the data are - there is so little variablility compared to all other stations
+#   mutate( #ja = case_when(tot_pol == 0 & NAB_station == "Waco B" ~ NA_real_, TRUE ~ ja),
+#           #cup_other = case_when(tot_pol == 0 & NAB_station == "Waco B" ~ NA_real_, TRUE ~ cup_other),
+#          Cupressaceae = case_when(tot_pol == 0 & NAB_station == "Waco B" ~ NA_real_, TRUE ~ Cupressaceae),
 
-ggplot(pd, aes(x = doy, y = Cupressaceae + 0.9, color = (ja))) + geom_point() + facet_wrap(~NAB_station) + theme_bw() + scale_y_log10()
+#Quality control for Waco A, Cupressaceae seems to have been mistakenly entered as Ambrosia for a season
+  mutate( Cupressaceae = case_when(NAB_station == "Waco A" & Cupressaceae == 0 &
+                                     date > mdy("12/11/2009") & date < mdy("2/20/2010") ~ Ambrosia, TRUE ~ Cupressaceae),
+           Ambrosia = case_when(NAB_station == "Waco A"  &
+                                     date > mdy("12/11/2009") & date < mdy("2/20/2010") ~ 0, TRUE ~ Ambrosia))
+
+
+#Cupressaceae, Ambrosia, Morus, Ulmus, grass, Fagales, other_trees, other_pollen,
+ggplot(pd, aes(x = doy, y = other_pollen + 1)) + geom_point() + facet_grid(year~NAB_station) + theme_bw() + scale_y_log10()
+
+filter(pd, NAB_station == "Waco A") %>%
+ggplot(aes(x = doy, y = Ambrosia+ 1)) + geom_point() + facet_grid(NAB_station~year) + theme_bw() + scale_y_log10() +
+  geom_point(aes(x = doy, y = Cupressaceae + 1), col = "red")
+
+### trying out a simple linear interpolation ###############################################################
+#using a random forest is slightly better but far more complicated and I don't think it's worth it because it is just so much more complicated to explain
+#the marginal benefit is probably an R2 improvement of ~0.02 
+# so, as of 10/2/20, I'm going to switch over to just a linear interpolation:
+library(imputeTS)
+
+#linear interpolation of virus data
+pd_m <- pd %>% mutate(
+              mo = month(date),
+             doy = yday(date),
+             year = year(date),
+             year_f = paste0("y_", year(date)),
+  
+                        Cupressaceae_m = na_interpolation(Cupressaceae),
+                        Ambrosia_m = na_interpolation(Ambrosia),
+                        Morus_m = na_interpolation(Morus),
+                        Ulmus_m = na_interpolation(Ulmus),
+                        grass_m = na_interpolation(grass),
+                        Fagales_m = na_interpolation(Fagales),
+                        other_trees_m = na_interpolation(other_trees),
+                        other_pollen_m = na_interpolation(other_pollen)) 
+
+#test <- 
+  pd_m %>% 
+  #filter(NAB_station == "College Station") %>% 
+filter(date > mdy("10/1/2015") & date < mdy("1/1/2018")) %>% 
+ggplot(aes(x = doy, y = other_pollen_m + 1))  + facet_grid(year~NAB_station) + theme_bw() + scale_y_log10() +
+  geom_point(color = "red") + 
+  geom_point(aes(x= doy, y = other_pollen + 1), color = "black")
+  
+write_csv(pd_m, "C:/Users/dsk856/Box/texas/NAB/NAB_pollen_modeled_linear_interp_201002.csv")
+
+         
 
 ### download and extract met data from Daymet ###############################################################
 library(daymetr)
@@ -85,40 +143,40 @@ library("rnoaa")
 
 #https://docs.ropensci.org/rnoaa/
 
-station_data <- ghcnd_stations(noaa_key = noaa_api_key) # Takes a while to run
-NAB_tx_coords_rnoaa <- NAB_tx_coords %>% rename(id = site, latitude = lat, longitude = long)
-
-nearby_stations <- meteo_nearby_stations(lat_lon_df = NAB_tx_coords_rnoaa, radius = 150, limit = 1, 
-                                         year_min = 2009, year_max = 2019, var = "AWND")
-
-station_names <- as.data.frame(nearby_stations) %>% select(contains("id")) %>% unlist()
-all_monitors_clean <- meteo_pull_monitors(monitors = station_names, keep_flags = FALSE, 
-                                          date_min = "2008-01-01", var = "all") #takes a few minutes to run
-#wasn't able to download all 8 at once, did it manually in batches
-unique(all_monitors_clean3$id)
-station_names2 <- station_names[1:4]
-all_monitors_clean2 <- meteo_pull_monitors(monitors = station_names[1], keep_flags = FALSE, 
-                                          date_min = "2008-01-01", var = "all") #takes a few minutes to run
-all_monitors_clean3 <- meteo_pull_monitors(monitors = station_names[2:4], keep_flags = FALSE, 
-                                           date_min = "2008-01-01", var = "all") #takes a few minutes to run
-all_monitors_clean4 <- bind_rows(all_monitors_clean, all_monitors_clean2, all_monitors_clean3)
-station_names_lookup <- data.frame(id = station_names, NAB_station = names(station_names)) %>%
-  mutate(NAB_station = gsub(pattern = ".", replacement = " ", x = NAB_station, fixed = TRUE),
-         NAB_station = gsub(pattern = "id", replacement = "", x = NAB_station, fixed = TRUE), 
-         NAB_station = stringr::str_trim(NAB_station))
-
-#names(all_monitors_clean4 )
-all_monitors_clean4 <- all_monitors_clean4 %>% rename_at(vars(c(-id, -date, - NAB_station)), ~ paste0("ghcn_", .))
-#unique(all_monitors_clean4$NAB_station)
+# station_data <- ghcnd_stations(noaa_key = noaa_api_key) # Takes a while to run
+# NAB_tx_coords_rnoaa <- NAB_tx_coords %>% rename(id = site, latitude = lat, longitude = long)
+# 
+# nearby_stations <- meteo_nearby_stations(lat_lon_df = NAB_tx_coords_rnoaa, radius = 150, limit = 1, 
+#                                          year_min = 2009, year_max = 2019, var = "AWND")
+# 
+# station_names <- as.data.frame(nearby_stations) %>% select(contains("id")) %>% unlist()
+# all_monitors_clean <- meteo_pull_monitors(monitors = station_names, keep_flags = FALSE, 
+#                                           date_min = "2008-01-01", var = "all") #takes a few minutes to run
+# #wasn't able to download all 8 at once, did it manually in batches
+# unique(all_monitors_clean3$id)
+# station_names2 <- station_names[1:4]
+# all_monitors_clean2 <- meteo_pull_monitors(monitors = station_names[1], keep_flags = FALSE, 
+#                                           date_min = "2008-01-01", var = "all") #takes a few minutes to run
+# all_monitors_clean3 <- meteo_pull_monitors(monitors = station_names[2:4], keep_flags = FALSE, 
+#                                            date_min = "2008-01-01", var = "all") #takes a few minutes to run
+# all_monitors_clean4 <- bind_rows(all_monitors_clean, all_monitors_clean2, all_monitors_clean3)
+# station_names_lookup <- data.frame(id = station_names, NAB_station = names(station_names)) %>%
+#   mutate(NAB_station = gsub(pattern = ".", replacement = " ", x = NAB_station, fixed = TRUE),
+#          NAB_station = gsub(pattern = "id", replacement = "", x = NAB_station, fixed = TRUE), 
+#          NAB_station = stringr::str_trim(NAB_station))
+# 
+# #names(all_monitors_clean4 )
+# all_monitors_clean4 <- all_monitors_clean4 %>% rename_at(vars(c(-id, -date, - NAB_station)), ~ paste0("ghcn_", .))
+# #unique(all_monitors_clean4$NAB_station)
 
 #write_csv(all_monitors_clean4, "C:/Users/dsk856/Box/texas/NAB/weatherNOAA_at_NAB_stations200611.csv")
 all_monitors_clean4 <- read_csv("C:/Users/dsk856/Box/texas/NAB/weatherNOAA_at_NAB_stations200611.csv", guess_max = 40000)
 #names(all_monitors_clean4)
 pd3 <- left_join(pd2, all_monitors_clean4)
-#write_csv(pd3, "C:/Users/dsk856/Box/texas/NAB/NAB_weather200810.csv")
+#write_csv(pd3, "C:/Users/dsk856/Box/texas/NAB/NAB_weather201002.csv")
 
 ### summarizing missing pollen data: stats for manuscript #########################################################################
-pd3 <- read_csv("C:/Users/dsk856/Box/texas/NAB/NAB_weather200810.csv", guess_max = 40000)
+#pd3 <- read_csv("C:/Users/dsk856/Box/texas/NAB/NAB_weather201002.csv", guess_max = 40000)
 pd3 <- pd3 %>% mutate(mo = month(date),
                       doy = as.numeric(day(date)),
                       year = year(date),
@@ -128,10 +186,10 @@ pd3 <- pd3 %>% mutate(mo = month(date),
 #Note that Waco B appears to have some observations where NA has been miscoded as 0
 pd3 %>% 
   filter(date > mdy("10 - 31 - 2015") & date < mdy("1 - 1 - 2018")) %>% 
-  select(trees, NAB_station) %>% 
+  select(tot_pol, NAB_station) %>% 
   group_by(NAB_station) %>% 
   summarize(
-            n_NA = sum(is.na(trees)),
+            n_NA = sum(is.na(tot_pol)),
             n_obs = n(),
             prop_NA = n_NA/n_obs)
 
@@ -161,6 +219,7 @@ ggplot(aes(x = date, y = tot_pol + 1)) + geom_point() + scale_y_log10() + facet_
 
 
 
+     
 ### modeling with RF: create derived variables and subset training and testing datasets ###########################################
 library(magrittr)
 library("slider")
@@ -172,7 +231,7 @@ library(tidyr)
 
 #names(which(sapply(dp2, anyNA)))
 #set.seed(100)
-pd3 <- read_csv("C:/Users/dsk856/Box/texas/NAB/NAB_weather200810.csv", guess_max = 40000)
+pd3 <- read_csv("C:/Users/dsk856/Box/texas/NAB/NAB_weather201002.csv", guess_max = 40000)
 pd3 <- pd3 %>% mutate(mo = month(date),
                   doy = as.numeric(day(date)),
                   year = year(date),
@@ -256,7 +315,6 @@ pol_missing_data <- pd4 %>% filter(is.na(tot_pol)) %>% #when one pollen type is 
 #   bind_cols(., pol_missing_data_georgetown) %>%
 #   rowwise() %>%
 #   mutate(focal_pollen = ifelse(isTRUE(missing_george), NA, trees))
-
 
 
 
