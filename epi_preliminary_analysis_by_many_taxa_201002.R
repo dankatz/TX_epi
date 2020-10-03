@@ -174,7 +174,7 @@ distances <- st_distance(opa_raw_sf, NAB_tx_sf, by_element = FALSE) /1000 #calcu
 distances_df <- as.data.frame(distances) 
 distances_min <- apply(distances_df, 1, FUN = min) #minimum distance to a NAB station
 which_station_closest <- apply(distances_df, 1, function(x) which(x == min(x, na.rm = TRUE))) #which station is closest
-NAB_station_lookup <- data.frame(NAB_station = NAB_tx_sf$NAB_station, n_lookup = 1:9)
+NAB_station_lookup <- data.frame(NAB_station = NAB_tx_sf$NAB_station, n_lookup = 1:8)
 station_looked_up <- left_join(data.frame(n_lookup = which_station_closest), NAB_station_lookup)
 opa_raw_sf <- mutate(opa_raw_sf, NAB_min_dist = distances_min, NAB_station = station_looked_up$NAB_station)
 NAB_dist_opa_join <- opa_raw_sf 
@@ -761,21 +761,21 @@ data_for_model <- opa_day %>%
 
 max_lag <-14
 cup_lag <- crossbasis(data_for_model$cup_lm, lag = max_lag,
-                     argvar=list(fun = "poly", degree = 3), arglag = list(fun = "poly", degree = 3)) #hist(data_for_model$ja_lm) #str(ja_lag)
+                     argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 2)) #hist(data_for_model$ja_lm) #str(ja_lag)
 Fagales_lag <- crossbasis(data_for_model$Fagales_lm, lag = max_lag,
-                      argvar=list(fun = "poly", degree = 3), arglag = list(fun = "poly", degree = 3)) #hist(data_for_model$ja_lm) #str(ja_lag)
+                          argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 2)) #hist(data_for_model$ja_lm) #str(ja_lag)
 Morus_lag <- crossbasis(data_for_model$Morus_lm, lag = max_lag,
-                   argvar=list(fun = "poly", degree = 3), arglag = list(fun = "poly", degree = 3)) #hist(data_for_model$ja_lm) #str(ja_lag)
+                        argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 2)) #hist(data_for_model$ja_lm) #str(ja_lag)
 Ulmus_lag <- crossbasis(data_for_model$Ulmus_lm, lag = max_lag,
-                   argvar=list(fun = "poly", degree = 3), arglag = list(fun = "poly", degree = 3)) #hist(data_for_model$ja_lm) #str(ja_lag)
+                        argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 2)) #hist(data_for_model$ja_lm) #str(ja_lag)
 Ambrosia_lag <- crossbasis(data_for_model$Ambrosia_lm, lag = max_lag,
-                   argvar=list(fun = "poly", degree = 3), arglag = list(fun = "poly", degree = 3)) #hist(data_for_model$ja_lm) #str(ja_lag)
+                           argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 2)) #hist(data_for_model$ja_lm) #str(ja_lag)
 grass_lag <- crossbasis(data_for_model$grass_lm, lag = max_lag,
-                   argvar=list(fun = "poly", degree = 3), arglag = list(fun = "poly", degree = 3)) #hist(data_for_model$ja_lm) #str(ja_lag)
+                        argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 2)) #hist(data_for_model$ja_lm) #str(ja_lag)
 other_trees_lag <- crossbasis(data_for_model$other_trees_lm, lag = max_lag,
-                   argvar=list(fun = "poly", degree = 3), arglag = list(fun = "poly", degree = 3)) #hist(data_for_model$ja_lm) #str(ja_lag)
+                              argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 2)) #hist(data_for_model$ja_lm) #str(ja_lag)
 other_pollen_lag <- crossbasis(data_for_model$other_pollen_lm, lag = max_lag,
-                              argvar=list(fun = "poly", degree = 3), arglag = list(fun = "poly", degree = 3)) #hist(data_for_model$ja_lm) #str(ja_lag)
+                               argvar=list(fun = "lin"), arglag = list(fun = "poly", degree = 2)) #hist(data_for_model$ja_lm) #str(ja_lag)
 
 # 
 # trees_lag <- crossbasis(data_for_model$trees_lm, lag = max_lag, 
@@ -892,6 +892,15 @@ as.data.frame(exp(pred1_cup$cumfit)) %>% mutate(pol_conc = pred1_cup$predvar) %>
   scale_fill_viridis_d(option = "magma", direction = -1, name = "RR") + #, begin = 0.3, end = 1)  #automatically bins and turns to factor
   #scale_fill_brewer(palette = "RdYlBu")
   ggtitle(paste0("  n_pop = ", sum(pop_near_NAB_agegroup_x$agegroup_x_pop)))
+
+data.frame(pol_conc = 10^(pred1_cup$predvar), 
+           mean = pred1_cup$allRRfit,
+           lower = pred1_cup$allRRlow,
+           upper = pred1_cup$allRRhigh) %>% 
+  ggplot(aes(x = pol_conc, y = mean, ymin = lower, ymax = upper))+
+  geom_ribbon(alpha=0.1)+ geom_line()+ geom_hline(lty=2, yintercept = 1)+ # horizontal reference line at no change in odds
+  xlab(expression(paste("Cupressaceae (pollen grains / m"^"3",")")))+ ylab('RR')+theme_few() + scale_x_log10() +
+  ggtitle(paste0("ages ", age_low, "-", age_hi, "  n_cases = ", sum(data_for_model$n_cases)))
 
 
 
