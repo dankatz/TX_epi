@@ -240,8 +240,8 @@ day_NAB_list <- mutate(day_NAB_list, n_cases = 0, doy = yday(date))
 # All_vars <- c(AllM, AllF)
 
 ### define target age range here 
-age_low <- 5 # >=
-age_hi <- 17 # <=
+age_low <- 18 # >=
+age_hi <- 99 # <=
 
 #Variables that I want: ages 5-17  #B01001_003
 c_vars <- c("B01001_004", "B01001_005", "B01001_006", #males from 5-17 years old
@@ -249,8 +249,8 @@ c_vars <- c("B01001_004", "B01001_005", "B01001_006", #males from 5-17 years old
 c_vars_adult <- c(paste0("B0100", 1007:1025), #males
                   paste0("B0100", 1031:1049)) %>%  #females
                   gsub(pattern = "B01001", replacement ="B01001_", x = .) #adding the underscore back in
-c_vars_agegroup_x <- c(paste0("B0100", 1004:1006), #males
-                    paste0("B0100", 1028:30)) %>%  #females
+c_vars_agegroup_x <- c(paste0("B0100", 1007:2025), #males 5 - 17: 1004:1006, 18 +: 1007:2025
+                    paste0("B0100", 1031:1039)) %>%  #females 5 - 17: 1028:1030, 18 +: 1031:1039
   gsub(pattern = "B01001", replacement ="B01001_", x = .) #adding the underscore back in
 
 #census_All_2017 <- get_acs(state="TX", geography="block group", year = 2017, variables=All_vars, geometry=FALSE) #takes 5 min
@@ -396,7 +396,7 @@ opa_day <- opa_day %>% ungroup() %>% group_by(NAB_station) %>% arrange(NAB_stati
 #for agegroup_x
 opa_day_agegroup_x <- mutate(opa_day, pbir = ((n_cases/agegroup_x_pop) * 10000), #PIBR per 10,000 for children
                   pbir_py = (pbir / ((agegroup_x_pop))) * 100000)
-# write_csv(opa_day_agegroup_x, paste0("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_ages_",age_low,"_",age_hi, "_25km_201002.csv"))
+# write_csv(opa_day_agegroup_x, paste0("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_ages_",age_low,"_",age_hi, "_25km_201008.csv"))
 
 #summary(opa_day_agegroup_x)
 
@@ -670,7 +670,7 @@ opa_day_agegroup_x <- mutate(opa_day, pbir = ((n_cases/agegroup_x_pop) * 10000),
 
 
 
-#### Children: analysis with a distributed lags model using dlnm package #######################################
+#### Children 5-17: analysis with a distributed lags model using dlnm package #######################################
 library(dlnm)
 library(splines)
 library(MASS)
@@ -686,7 +686,7 @@ library(ggplot2)
 opa_day <- opa_day_agegroup_x
 
 opa_day %>% #group_by(NAB_station) %>% 
-  summarize(total_cases = sum(n_cases), PBIR_mean = mean(pbir))
+  summarize(total_cases = sum(n_cases), PBIR_mean = mean(pbir)) #%>% ungroup() %>%  summarize( total_n = sum (total_cases))
 ggplot(opa_day, aes( x = date, y = cup_all + 1))  + facet_wrap(~NAB_station) + theme_bw()+ scale_y_log10() + 
   geom_point(color = "black") +
   geom_point(aes(x = date, y = cup_all_m + 1), color = "red", size = 0.5) 
@@ -729,9 +729,9 @@ data_for_model <- opa_day %>%
                 v_tests_adj_pos_RSV_m,
                 v_tests_adj_pos_Corona_m,
                 flu_d_prop_pos, 
-                flu_d_total_pos #,
-                # met_prcpmmday, met_sradWm2, met_tmaxdegc, met_tmindegc, met_vpPa, #hist(data_for_model$met_prcpmmday_ls)
-                # met_prcpmmday_l, met_prcpmmday_ls, met_sradWm2_s, met_tmaxdegc_s, met_tmindegc_s, met_vpPa_s, met_tavg_s, met_prcp_flag
+              #  flu_d_total_pos #,
+                 met_prcpmmday, met_sradWm2, met_tmaxdegc, met_tmindegc, met_vpPa, #hist(data_for_model$met_prcpmmday_ls)
+                 met_prcpmmday_l, met_prcpmmday_ls, met_sradWm2_s, met_tmaxdegc_s, met_tmindegc_s, met_vpPa_s, met_tavg_s, met_prcp_flag
   ) %>%
   arrange(NAB_station, date) %>%
   ungroup() %>%  #to avoid an error with filtering the complete cases on the next line: https://stackoverflow.com/questions/59603972/result-must-have-length-error-with-complete-cases 
@@ -760,23 +760,23 @@ pol_other_lag <- crossbasis(data_for_model$pol_other_lm, lag = max_lag,
                             argvar=list(fun = "poly", degree = 3), arglag = list(fun = "poly", degree = 3))
 
 #glm.nb can be substituted in, but doesn't seem to change much
-model1 <- glm(n_cases ~ NAB_station + #nb.glm
+model1 <- glm.nb(n_cases ~ NAB_station + #nb.glm
                     offset(log(agegroup_x_pop)) +  #offset(log(child_pop)) + #offset(log(adult_pop))
-                    cup_lag +  trees_lag + #pol_other_lag + 
+                    cup_lag +  trees_lag + pol_other_lag + 
                     v_tests_perc_pos_Rhinovirus_m+
-                    v_tests_perc_pos_RSV_m+
+                    # v_tests_perc_pos_RSV_m+
                     v_tests_perc_pos_Corona_m+
                     flu_d_prop_pos + #flu_d_total_pos + flu_d_prop_pos
                     week_day + 
-                    #met_vpPa +
-                     # met_prcpmmday_ls +
+                     # met_vpPa +
+                     #met_prcpmmday_ls +
                      # met_tavg_s +  #met_tmindegc_s + ###met_vpPa +  humidity matters and overwrites temperature and precip
-                    #met_tmaxdegc_s +
+                    # met_tmaxdegc_s +
                     #met_tmindegc_s +
                     #met_sradWm2_s + #
-                    #met_prcp_flag +
+                    # met_prcp_flag +
                     ns(time, 12),
-             family = quasipoisson, 
+             #family = quasipoisson, 
               data = data_for_model) #quasipoisson #data_for_model$agegroup_x_pop
 summary(model1)
 
@@ -831,9 +831,12 @@ child_RR_x_cup_25km <-
                      upper = pred1_cup$allRRhigh) %>% 
 ggplot(aes(x = pol_conc, y = mean, ymin = lower, ymax = upper))+
   geom_ribbon(alpha=0.1)+ geom_line()+ geom_hline(lty=2, yintercept = 1)+ # horizontal reference line at no change in odds
-  xlab(expression(paste("Cupressaceae (pollen grains / m"^"3",")")))+ ylab('RR')+theme_few() + scale_x_log10() +
-  ggtitle(paste0("ages ", age_low, "-", age_hi, "  n_cases = ", sum(data_for_model$n_cases)))
-  
+  xlab(expression(paste("Cupressaceae (pollen grains / m"^"3",")")))+ ylab('RR')+theme_few() + scale_x_log10() + 
+  annotation_logticks(sides = "b")  
+  #ggtitle(paste0("ages ", age_low, "-", age_hi, "  n_cases = ", sum(data_for_model$n_cases))) 
+
+child_RR_x_cup_25km <- child_RR_x_cup_25km +
+  geom_rug(data = data_for_model, aes(x = cup_all_m + 1), sides = "t", alpha = 0.1, inherit.aes = FALSE) 
 
 # plot.crosspred(pred1_ja, "contour", cumul = TRUE, #trace(plot.crosspred, edit = TRUE)
 #      plot.title = title(xlab = expression(paste("log10(Cupressaceae pollen grains m"^"3",")")), 
@@ -843,11 +846,12 @@ child_lag_RR_x_cup_25km <-
          pivot_longer(., cols = contains("lag"), names_to = "lag", values_to = "RR") %>% 
          mutate(lag = as.numeric(gsub(pattern = "lag", replacement = "", x = lag)),
                 pol_conc_exp = 10^pol_conc) %>% 
-ggplot(aes(x = pol_conc_exp, y = lag, z = RR)) + geom_contour_filled(bins = 15) + theme_few() +
+ggplot(aes(x = pol_conc_exp, y = lag, z = RR)) + geom_contour_filled(bins = 10) + theme_few() +
   xlab(expression(paste("Cupressaceae (pollen grains / m"^"3",")")))+ scale_x_log10() +
-  scale_fill_viridis_d(option = "magma", direction = -1, name = "RR") + #, begin = 0.3, end = 1)  #automatically bins and turns to factor
-  #scale_fill_brewer(palette = "RdYlBu")
-  ggtitle(paste0("  n_pop = ", sum(pop_near_NAB_agegroup_x$agegroup_x_pop)))
+  scale_fill_viridis_d(option = "plasma", direction = -1, name = "RR") + #, begin = 0.3, end = 1)  #automatically bins and turns to factor
+  #scale_fill_brewer(palette = "RdYlBu") 
+  annotation_logticks(sides = "b")  
+  #ggtitle(paste0("  n_pop = ", sum(pop_near_NAB_agegroup_x$agegroup_x_pop)))
 
 ## trees #
 pred1_trees <- crosspred(trees_lag,  model2, cen = 0, cumul = TRUE,
@@ -863,9 +867,11 @@ child_RR_x_trees_25km <-
              upper = pred1_trees$allRRhigh) %>% 
   ggplot(aes(x = pol_conc, y = mean, ymin = lower, ymax = upper))+
   geom_ribbon(alpha=0.1)+ geom_line()+ geom_hline(lty=2, yintercept = 1)+ # horizontal reference line at no change in odds
-  xlab(expression(paste("trees (pollen grains / m"^"3",")")))+ ylab('RR')+theme_few() + scale_x_log10()
+  xlab(expression(paste("trees (pollen grains / m"^"3",")")))+ ylab('RR')+theme_few() + scale_x_log10()+ 
+  annotation_logticks(sides = "b")  
 
-
+child_RR_x_trees_25km <-  child_RR_x_trees_25km + 
+  geom_rug(data = data_for_model, aes(x = trees_m + 1), sides = "t", alpha = 0.1, inherit.aes = FALSE) 
 # plot.crosspred(pred1_trees, "contour", cumul = TRUE,
 #      plot.title = title(xlab = expression(paste("log10(tree pollen grains m"^"3",")")),
 #                         ylab = "Lag", main = "Cumulative RR across lags for trees"), key.title = title("RR"))
@@ -874,43 +880,50 @@ child_lag_RR_x_trees_25km <-
   pivot_longer(., cols = contains("lag"), names_to = "lag", values_to = "RR") %>% 
   mutate(lag = as.numeric(gsub(pattern = "lag", replacement = "", x = lag)),
          pol_conc_exp = 10^pol_conc) %>% 
-  ggplot(aes(x = pol_conc_exp, y = lag, z = RR)) + geom_contour_filled(bins = 15) + theme_few() +
+  ggplot(aes(x = pol_conc_exp, y = lag, z = RR)) + geom_contour_filled(bins = 10) + theme_few() +
   xlab(expression(paste("tree pollen (pollen grains / m"^"3",")")))+ scale_x_log10() +
-  scale_fill_viridis_d(option = "viridis", direction = -1, name = "RR") 
+  scale_fill_viridis_d(option = "plasma", direction = -1, name = "RR") + 
+  annotation_logticks(sides = "b")  
 
 
-# ## pol_other
-# pred1_pol_other <- crosspred(pol_other_lag,  model2, cen = 0, cumul = TRUE,
-#                          at = seq(from = 0, to = max(data_for_model$pol_other_lm), by = .10))
-# child_RR_x_pol_other_25km <- 
-#   data.frame(pol_conc = 10^(pred1_pol_other$predvar), 
-#              mean = pred1_pol_other$allRRfit,
-#              lower = pred1_pol_other$allRRlow,
-#              upper = pred1_pol_other$allRRhigh) %>% 
-#   ggplot(aes(x = pol_conc, y = mean, ymin = lower, ymax = upper))+
-#   geom_ribbon(alpha=0.1)+ geom_line()+ geom_hline(lty=2, yintercept = 1)+ # horizontal reference line at no change in odds
-#   xlab(expression(paste("other pollen (pollen grains / m"^"3",")")))+ ylab('RR')+theme_few() + scale_x_log10()
-# 
-# child_lag_RR_x_pol_other_25km <-
-#   as.data.frame(exp(pred1_pol_other$cumfit)) %>% mutate(pol_conc = pred1_pol_other$predvar) %>% 
-#   pivot_longer(., cols = contains("lag"), names_to = "lag", values_to = "RR") %>% 
-#   mutate(lag = as.numeric(gsub(pattern = "lag", replacement = "", x = lag)),
-#          pol_conc_exp = 10^pol_conc) %>% 
-#   ggplot(aes(x = pol_conc_exp, y = lag, z = RR)) + geom_contour_filled(bins = 15) + theme_few() +
-#   xlab(expression(paste("other pollen (pollen grains / m"^"3",")")))+ scale_x_log10() +
-#   scale_fill_viridis_d(option = "viridis", direction = -1, name = "RR") 
+## pol_other
+pred1_pol_other <- crosspred(pol_other_lag,  model2, cen = 0, cumul = TRUE,
+                         at = seq(from = 0, to = max(data_for_model$pol_other_lm), by = .10))
+child_RR_x_pol_other_25km <-
+  data.frame(pol_conc = 10^(pred1_pol_other$predvar),
+             mean = pred1_pol_other$allRRfit,
+             lower = pred1_pol_other$allRRlow,
+             upper = pred1_pol_other$allRRhigh) %>%
+  ggplot(aes(x = pol_conc, y = mean, ymin = lower, ymax = upper))+
+  geom_ribbon(alpha=0.1)+ geom_line()+ geom_hline(lty=2, yintercept = 1)+ # horizontal reference line at no change in odds
+  xlab(expression(paste("other pollen (pollen grains / m"^"3",")")))+ ylab('RR')+theme_few() + scale_x_log10() + 
+  annotation_logticks(sides = "b")  
+  
+child_RR_x_pol_other_25km <- child_RR_x_pol_other_25km +
+geom_rug(data = data_for_model, aes(x = pol_other_m + 1), sides = "t", alpha = 0.1, inherit.aes = FALSE) 
+
+
+child_lag_RR_x_pol_other_25km <-
+  as.data.frame(exp(pred1_pol_other$cumfit)) %>% mutate(pol_conc = pred1_pol_other$predvar) %>%
+  pivot_longer(., cols = contains("lag"), names_to = "lag", values_to = "RR") %>%
+  mutate(lag = as.numeric(gsub(pattern = "lag", replacement = "", x = lag)),
+         pol_conc_exp = 10^pol_conc) %>%
+  ggplot(aes(x = pol_conc_exp, y = lag, z = RR)) + geom_contour_filled(bins = 10) + theme_few() +
+  xlab(expression(paste("other pollen (pollen grains / m"^"3",")")))+ scale_x_log10() +
+  scale_fill_viridis_d(option = "plasma", direction = -1, name = "RR") + 
+  annotation_logticks(sides = "b")  
 
 
 #saving the figs 
 #child_pol_25km <-
   cowplot::plot_grid(child_RR_x_cup_25km, child_lag_RR_x_cup_25km, child_RR_x_trees_25km, child_lag_RR_x_trees_25km,
-                     #child_RR_x_pol_other_25km, child_lag_RR_x_pol_other_25km,
+                     child_RR_x_pol_other_25km, child_lag_RR_x_pol_other_25km,
                    ncol = 2, labels = c("A) Cupressaceae pollen", 
                                         "B) Cupressaceae pollen by lag", 
                                         "C) tree pollen", 
-                                        "D) tree pollen by lag"),
-                                        # "E) other pollen", 
-                                        # "F) other pollen by lag"),
+                                        "D) tree pollen by lag",
+                                        "E) other pollen",
+                                        "F) other pollen by lag"),
                    rel_widths = c(0.8, 1, 0.8, 1),
                    label_size = 11, label_x = 0.14, label_y = 0.9, hjust = 0, vjust = 0)
 
@@ -940,36 +953,43 @@ quantile(trees_attr, probs = c(0.025, 0.95))/sum(model2$fitted.values)
 mean(trees_attr) / sum(model2$fitted.values)
 
 
+other_pol_attr <- attrdl(x = data_for_model$pol_other_lm, basis = pol_other_lag, cases = data_for_model$n_cases, model = model2, dir = "back", sim = TRUE,
+                     cen = 0, tot = TRUE, type = "an", range = NULL, nsim = 10000)
+summary(other_pol_attr)
+quantile(other_pol_attr, probs = c(0.025, 0.95))
+mean(other_pol_attr) / sum(model2$fitted.values)
+quantile(other_pol_attr, probs = c(0.025, 0.95))/sum(model2$fitted.values)
+mean(other_pol_attr) / sum(model2$fitted.values)
+
 #no viruses
 #No rhinovirus #hist(data_for_model$v_tests_perc_pos_Rhinovirus_ms)
 newdata <- data_for_model %>%  #data_for_model$v_tests_perc_pos_Rhinovirus_ms #str(data_for_model$v_tests_pos_Rhinoviruss)
   #mutate(v_tests_perc_pos_Rhinovirus_m = 0) 
   mutate(v_tests_perc_pos_Rhinovirus_m = min(data_for_model$v_tests_perc_pos_Rhinovirus_m) )
 model_pred_no_rhino <- predict.glm(object = model2, newdata = newdata, type = "response")  #str(model_pred)
-sum(model2$fitted.values)
-sum(model_pred_no_rhino, na.rm = TRUE)
+sum(model2$fitted.values) - sum(model_pred_no_rhino, na.rm = TRUE)
 (sum(model2$fitted.values) - sum(model_pred_no_rhino, na.rm = TRUE) ) / sum(model2$fitted.values) 
 
 # #No RSV
 # newdata <- data_for_model %>%  #data_for_model$v_tests_perc_pos_RSV_ms #str(data_for_model$v_tests_pos_RSV)
-#   mutate(v_tests_perc_pos_RSV_ms = 0) 
-# model_pred <- predict.glm(object = model2, newdata = newdata, type = "response") 
-# (sum(model2$fitted.values) - sum(model_pred, na.rm = TRUE) ) / sum(model2$fitted.values) 
+#   mutate(v_tests_perc_pos_RSV_ms = 0)
+# model_pred_no_RSV <- predict.glm(object = model2, newdata = newdata, type = "response") 
+# sum(model2$fitted.values) 
+# sum(model_pred_no_RSV, na.rm = TRUE)
+# (sum(model2$fitted.values) - sum(model_pred_no_RSV, na.rm = TRUE) ) / sum(model2$fitted.values) 
 
 #No corona
 newdata <- data_for_model %>%  #data_for_model$v_tests_perc_pos_RSV_ms #str(data_for_model$v_tests_pos_RSV)
   mutate(v_tests_perc_pos_Corona_m = min(data_for_model$v_tests_perc_pos_Corona_m)) 
 model_pred_no_corona <- predict.glm(object = model2, newdata = newdata, type = "response") 
-sum(model2$fitted.values) 
-sum(model_pred_no_corona, na.rm = TRUE)
+sum(model2$fitted.values) - sum(model_pred_no_corona, na.rm = TRUE)
 (sum(model2$fitted.values) - sum(model_pred_no_corona, na.rm = TRUE) ) / sum(model2$fitted.values) 
 
 #No flu
 newdata <- data_for_model %>%  #data_for_model$flu_ds #str(data_for_model$v_tests_pos_RSV)
   mutate(flu_d_prop_pos = min(data_for_model$flu_d_prop_pos)) 
 model_pred_no_flu <- predict.glm(object = model2, newdata = newdata, type = "response") 
-sum(model2$fitted.values) 
-sum(model_pred_no_flu, na.rm = TRUE)
+sum(model2$fitted.values) - sum(model_pred_no_flu, na.rm = TRUE)
 (sum(model2$fitted.values) - sum(model_pred_no_flu, na.rm = TRUE) ) / sum(model2$fitted.values) 
 
 
@@ -989,29 +1009,33 @@ attr_t_cup <- attrdl(x = data_for_model$cup_all_lm, basis = cup_lag, cases = dat
 attr_t_trees <- attrdl(x = data_for_model$trees_lm, basis = trees_lag, cases = data_for_model$n_cases, model = model2, dir = "back", sim = FALSE,
                      cen = 0, tot = FALSE, type = "an", range = NULL)
 
+attr_t_other_pol <- attrdl(x = data_for_model$pol_other_lm, basis = pol_other_lag, cases = data_for_model$n_cases, model = model2, dir = "back", sim = FALSE,
+                       cen = 0, tot = FALSE, type = "an", range = NULL)
+
 attr_t_rhino <- (c(rep(NA, max_lag + 1), model2$fitted.values) - model_pred_no_rhino) #hist(attr_t_cup)
 attr_t_corona <- (c(rep(NA, max_lag + 1), model2$fitted.values) - model_pred_no_corona)
 attr_t_flu <- (c(rep(NA, max_lag + 1), model2$fitted.values) - model_pred_no_flu)
 
 attr_t_baseline <- c(rep(NA, max_lag + 1), model2$fitted.values) #hist(model2$fitted.values)
-attr_df <- data.frame(attr_t_cup, attr_t_trees, attr_t_rhino, attr_t_corona, attr_t_flu, attr_t_baseline)
-attr_df[attr_df < 0] <- 0 #removing net protective effects of all variables
+attr_df <- data.frame(attr_t_cup, attr_t_trees, attr_t_rhino, attr_t_corona, attr_t_flu, attr_t_baseline, attr_t_other_pol) #attr_t_other_pol, 
+#attr_df[attr_df < 0] <- 0 #removing net protective effects of all variables
 
 # attr_df_p <- attr_df/attr_t_baseline
 # summary(attr_df_p)
 attr_full_df <- bind_cols(data_for_model, attr_df) %>% 
-  mutate(attr_t_unexplained = attr_t_baseline - attr_t_cup - attr_t_trees - attr_t_rhino - attr_t_corona - attr_t_flu) %>% 
+  mutate(attr_t_unexplained = attr_t_baseline - attr_t_cup - attr_t_trees - attr_t_rhino - attr_t_corona - attr_t_flu 
+                              - attr_t_other_pol) %>% #attr_t_other_pol
   dplyr::select(date, NAB_station, agegroup_x_pop, 
-                attr_t_unexplained, attr_t_cup, attr_t_trees, attr_t_rhino, attr_t_corona, attr_t_flu) %>% 
+                attr_t_unexplained, attr_t_cup, attr_t_trees,  attr_t_rhino, attr_t_corona, attr_t_flu, attr_t_other_pol) %>%   #attr_t_other_pol,
   pivot_longer(cols = contains("attr_t_"), names_to = "var", values_to = "risk_cases") %>% 
   mutate(week = week(date)) %>% 
   group_by(NAB_station, agegroup_x_pop, week, var) %>% 
   summarize(risk_cases = mean(risk_cases)) %>% 
   mutate(attr_risk_var_unorder = forcats::fct_recode(var, unexplained = "attr_t_unexplained",
                                                      Rhinovirus = "attr_t_rhino", Corona = "attr_t_corona", Influenza = "attr_t_flu",
-                                              Cupressaceae = "attr_t_cup", trees = "attr_t_trees"),
-         attr_risk_var = forcats::fct_relevel(attr_risk_var_unorder, c("Rhinovirus", "Corona", "Influenza", "Cupressaceae", "trees",
-                                                                       "unexplained")),
+                                              Cupressaceae = "attr_t_cup", trees = "attr_t_trees", other_pollen = "attr_t_other_pol"),
+         attr_risk_var = forcats::fct_relevel(attr_risk_var_unorder, c("Rhinovirus", "Corona", "Influenza", "other_pollen",
+                                                                       "Cupressaceae", "trees", "unexplained")),
          date2 = lubridate::ymd( "2016-01-01" ) + lubridate::weeks( week - 1 ))
          
 observed_ncases_t <- data_for_model %>% 
@@ -1025,7 +1049,7 @@ observed_ncases_t <- data_for_model %>%
 ggplot(attr_full_df, aes(x = date2, y = (risk_cases / agegroup_x_pop) * 10000, fill = attr_risk_var)) + 
   facet_wrap(~NAB_station) + geom_area() + theme_bw() + scale_fill_viridis_d(name = "attributable risk") + 
   ylab("asthma-related ED visits (per 10,000 people per day)") + xlab("date") +
-  scale_x_date(labels = date_format("%b")) + coord_cartesian(ylim = c(0.02, 0.2)) +
+  scale_x_date(labels = date_format("%b")) + coord_cartesian(ylim = c(0.02, .12)) +
   geom_step(data = observed_ncases_t, aes( x = date2, y =(mean_cases / agegroup_x_pop) * 10000, 
                                            color = "observed cases")) + scale_color_discrete(name = "")  
   
