@@ -241,8 +241,8 @@ day_NAB_list <- mutate(day_NAB_list, n_cases = 0, doy = yday(date))
 # All_vars <- c(AllM, AllF)
 
 ### define target age range here 
-age_low <- 0 # >=
-age_hi <- 4 # <=
+age_low <- 5 # >=
+age_hi <- 17 # <=
 
 #Variables that I want: ages 5-17  #B01001_003
 c_vars <- c("B01001_004", "B01001_005", "B01001_006", #males from 5-17 years old
@@ -250,8 +250,8 @@ c_vars <- c("B01001_004", "B01001_005", "B01001_006", #males from 5-17 years old
 c_vars_adult <- c(paste0("B0100", 1007:1025), #males
                   paste0("B0100", 1031:1049)) %>%  #females
                   gsub(pattern = "B01001", replacement ="B01001_", x = .) #adding the underscore back in
-c_vars_agegroup_x <- c(paste0("B0100", 1003), #males 0 - 4: 1003; 5 - 17: 1004:1006, 18 +: 1007:1025
-                    paste0("B0100", 1027)) %>%  #females 0 - 4: 1027; 5 - 17: 1028:1030, 18 +: 1031:1049
+c_vars_agegroup_x <- c(paste0("B0100", 1004:1006), #males 0 - 4: 1003; 5 - 17: 1004:1006, 18 +: 1007:1025
+                    paste0("B0100", 1028:1030)) %>%  #females 0 - 4: 1027; 5 - 17: 1028:1030, 18 +: 1031:1049
   gsub(pattern = "B01001", replacement ="B01001_", x = .) #adding the underscore back in
 
 #census_All_2017 <- get_acs(state="TX", geography="block group", year = 2017, variables=All_vars, geometry=FALSE) #takes 5 min
@@ -765,8 +765,8 @@ data_for_model <- opa_day %>%
   group_by(NAB_station) %>% 
   mutate(time = row_number())
 
-names(data_for_model) 
-summary(data_for_model)
+# names(data_for_model) 
+# summary(data_for_model)
 # ggplot(data_for_model, aes( x = date, y = log10(trees +1))) + geom_point() + facet_wrap(~NAB_station) +
 #   geom_point(aes(x = date, y = trees_lm), color = "red", size = 0.5) + scale_y_log10()
 
@@ -774,7 +774,7 @@ summary(data_for_model)
 # ja_lag <- crossbasis(data_for_model$ja_lm, lag = 21,
 #                           argvar=list("bs",degree=2,df=3), arglag = list(fun = "poly", degree = 3)) #hist(data_for_model$ja_lm)
 
-max_lag <- 14
+max_lag <- 7
 cup_lag <- crossbasis(data_for_model$cup_all_lm, lag = max_lag,
                      argvar=list(fun = "poly", degree = 3), arglag = list(fun = "poly", degree = 3)) #hist(data_for_model$ja_lm) #str(ja_lag)
 
@@ -783,6 +783,7 @@ trees_lag <- crossbasis(data_for_model$trees_lm, lag = max_lag,
 
 pol_other_lag <- crossbasis(data_for_model$pol_other_lm, lag = max_lag,
                             argvar=list(fun = "poly", degree = 3), arglag = list(fun = "poly", degree = 3))
+
 
 #glm.nb can be substituted in, but doesn't seem to change much
 model1 <- glm.nb(n_cases ~ NAB_station + #nb.glm
@@ -800,7 +801,7 @@ model1 <- glm.nb(n_cases ~ NAB_station + #nb.glm
                     #met_tmindegc_s +
                     #met_sradWm2_s + #
                     # met_prcp_flag +
-                    ns(time, 12),
+                    ns(time, df = 12),
              #family = quasipoisson, 
               data = data_for_model) #quasipoisson #data_for_model$agegroup_x_pop
 summary(model1)
@@ -1004,12 +1005,12 @@ table2$yc_p_cases_97.5[3] <- sprintf("%.1f", 100*as.numeric(quantile(other_pol_a
 #using predict.glm to get the mean and then following Gavin Simpson's instructions to get the CI
 #https://fromthebottomoftheheap.net/2018/12/10/confidence-intervals-for-glms/
 
-str(model2)
-model2$effects
-?predict.glm
-getAnywhere(predict.glm())
-summary(model2)
-summary.glm
+# str(model2)
+# model2$effects
+# ?predict.glm
+# getAnywhere(predict.glm())
+# summary(model2)
+# summary.glm
 
 #No rhinovirus #hist(data_for_model$v_tests_perc_pos_Rhinovirus_ms)
 newdata <- data_for_model %>%  #data_for_model$v_tests_perc_pos_Rhinovirus_ms #str(data_for_model$v_tests_pos_Rhinoviruss)
@@ -1017,8 +1018,8 @@ newdata <- data_for_model %>%  #data_for_model$v_tests_perc_pos_Rhinovirus_ms #s
   mutate(v_tests_perc_pos_Rhinovirus_m = 0)#min(data_for_model$v_tests_perc_pos_Rhinovirus_m) )
 model_pred_no_rhino <- predict.glm(object = model2, newdata = newdata, type = "response")  #str(model_pred)
 table2$yc_n_cases_mean[4] <- sprintf("%.0f", sum(model2$fitted.values) - sum(model_pred_no_rhino, na.rm = TRUE))
-table2$yc_p_cases_mean[4] <- sprintf("%.1f", (sum(model2$fitted.values) - sum(model_pred_no_rhino, na.rm = TRUE) ) / 
-                                       sum(model2$fitted.values) )
+table2$yc_p_cases_mean[4] <- sprintf("%.1f", 100*((sum(model2$fitted.values) - sum(model_pred_no_rhino, na.rm = TRUE) ) / 
+                                       sum(model2$fitted.values)) )
 
 # #No RSV
 # newdata <- data_for_model %>%  #data_for_model$v_tests_perc_pos_RSV_ms #str(data_for_model$v_tests_pos_RSV)
@@ -1033,59 +1034,59 @@ newdata <- data_for_model %>%  #data_for_model$v_tests_perc_pos_RSV_ms #str(data
   mutate(v_tests_perc_pos_Corona_m = 0) 
 model_pred_no_corona <- predict.glm(object = model2, newdata = newdata, type = "response") 
 table2$yc_n_cases_mean[5] <- sprintf("%.0f", sum(model2$fitted.values) - sum(model_pred_no_corona, na.rm = TRUE))
-table2$yc_p_cases_mean[5] <- sprintf("%.1f", (sum(model2$fitted.values) - sum(model_pred_no_corona, na.rm = TRUE) ) / 
-                                       sum(model2$fitted.values)  )
-
-
-model_pred_no_corona <- predict.glm(object = model2, newdata = newdata, type = "response", se.fit = TRUE) 
-plot(model_pred_no_corona$fit)
-plot(model_pred_no_corona$se.fit)
-
-family(model2)
-?predict.glm
+table2$yc_p_cases_mean[5] <- sprintf("%.1f", 100*((sum(model2$fitted.values) - sum(model_pred_no_corona, na.rm = TRUE) ) / 
+                                       sum(model2$fitted.values))  )
+# 
+# #MESSING AROUND WITH TRYING TO GET CIs FOR VIRUSES. NO LUCK SO FAR
 # model_pred_no_corona <- predict.glm(object = model2, newdata = newdata, type = "response", se.fit = TRUE) 
-# test <- ginv(na.omit(model_pred_no_corona[[1]] - 1.96 * model_pred_no_corona[[2]]))
-# sum(model_pred_no_corona[[1]] + 1.96 * model_pred_no_corona[[2]], na.rm = TRUE)
-var(data_for_model$n_cases)
-
-model_pred_no_corona <- predict.glm(object = model2, newdata = newdata, type = "response", se.fit = TRUE) 
-test <- data.frame(stan_fit = model_pred_no_corona$fit, 
-                   stan_fit_lo = model_pred_no_corona$fit - 1.96 * model_pred_no_corona$se.fit,
-                   stan_fit_hi = model_pred_no_corona$fit + 1.96 * model_pred_no_corona$se.fit)
-test %>% ungroup() %>% mutate(rowid = 1:8250) %>% 
-  ggplot(aes(x = rowid, y = stan_fit, ymax = stan_fit_hi, ymin = stan_fit_lo)) + geom_linerange() + theme_bw() + 
-  coord_cartesian(xlim=c(800,850)) + geom_point()
-
-## grad the inverse link function
-ilink <- family(model2)$linkinv
-## add fit and se.fit on the **link** scale
-ndata <- bind_cols(newdata, setNames(as_tibble(predict(model2, newdata, se.fit = TRUE)[1:2]),
-                                   c('fit_link','se_link')))
-## create the interval and backtransform
-ndata <- mutate(ndata,
-                fit_resp  = ilink(fit_link),
-                right_upr = ilink(fit_link + (1.96 * se_link)),
-                right_lwr = ilink(fit_link - (1.96 * se_link)))
-sum(ndata$fit_resp, na.rm = TRUE)
-sum(ndata$fit_resp, na.rm = TRUE) - sum(ndata$right_lwr, na.rm = TRUE)
-sum(ndata$right_upr, na.rm = TRUE) - sum(ndata$fit_resp, na.rm = TRUE)
-
-#model_pred_no_corona <- predict.glm(object = model2, newdata = newdata, type = "response", se.fit = TRUE)
-
-
-test3 <- cbind(ndata, test)
-
-test3 %>% ungroup() %>% mutate(rowid = 1:8250) %>% 
-  ggplot(aes(x = rowid, y = stan_fit, ymax = stan_fit_hi, ymin = stan_fit_lo)) + geom_linerange() + theme_bw() + 
-  coord_cartesian(xlim=c(800,850)) +
-  geom_point(aes(x=rowid, y = right_upr), col = "red") +
-  geom_point(aes(x=rowid, y = right_lwr), col = "blue") +
-  geom_point(aes(x=rowid, y = fit_resp), col = "black") 
-plot(test)
-
-ggplot(ndata, aes(x = row_id, ymax ))
-plot(ndata$right_upr)
-plot(ndata$right_lwr)
+# plot(model_pred_no_corona$fit)
+# plot(model_pred_no_corona$se.fit)
+# 
+# family(model2)
+# ?predict.glm
+# # model_pred_no_corona <- predict.glm(object = model2, newdata = newdata, type = "response", se.fit = TRUE) 
+# # test <- ginv(na.omit(model_pred_no_corona[[1]] - 1.96 * model_pred_no_corona[[2]]))
+# # sum(model_pred_no_corona[[1]] + 1.96 * model_pred_no_corona[[2]], na.rm = TRUE)
+# var(data_for_model$n_cases)
+# 
+# model_pred_no_corona <- predict.glm(object = model2, newdata = newdata, type = "response", se.fit = TRUE) 
+# test <- data.frame(stan_fit = model_pred_no_corona$fit, 
+#                    stan_fit_lo = model_pred_no_corona$fit - 1.96 * model_pred_no_corona$se.fit,
+#                    stan_fit_hi = model_pred_no_corona$fit + 1.96 * model_pred_no_corona$se.fit)
+# test %>% ungroup() %>% mutate(rowid = 1:8250) %>% 
+#   ggplot(aes(x = rowid, y = stan_fit, ymax = stan_fit_hi, ymin = stan_fit_lo)) + geom_linerange() + theme_bw() + 
+#   coord_cartesian(xlim=c(800,850)) + geom_point()
+# 
+# ## grad the inverse link function
+# ilink <- family(model2)$linkinv
+# ## add fit and se.fit on the **link** scale
+# ndata <- bind_cols(newdata, setNames(as_tibble(predict(model2, newdata, se.fit = TRUE)[1:2]),
+#                                    c('fit_link','se_link')))
+# ## create the interval and backtransform
+# ndata <- mutate(ndata,
+#                 fit_resp  = ilink(fit_link),
+#                 right_upr = ilink(fit_link + (1.96 * se_link)),
+#                 right_lwr = ilink(fit_link - (1.96 * se_link)))
+# sum(ndata$fit_resp, na.rm = TRUE)
+# sum(ndata$fit_resp, na.rm = TRUE) - sum(ndata$right_lwr, na.rm = TRUE)
+# sum(ndata$right_upr, na.rm = TRUE) - sum(ndata$fit_resp, na.rm = TRUE)
+# 
+# #model_pred_no_corona <- predict.glm(object = model2, newdata = newdata, type = "response", se.fit = TRUE)
+# 
+# 
+# test3 <- cbind(ndata, test)
+# 
+# test3 %>% ungroup() %>% mutate(rowid = 1:8250) %>% 
+#   ggplot(aes(x = rowid, y = stan_fit, ymax = stan_fit_hi, ymin = stan_fit_lo)) + geom_linerange() + theme_bw() + 
+#   coord_cartesian(xlim=c(800,850)) +
+#   geom_point(aes(x=rowid, y = right_upr), col = "red") +
+#   geom_point(aes(x=rowid, y = right_lwr), col = "blue") +
+#   geom_point(aes(x=rowid, y = fit_resp), col = "black") 
+# plot(test)
+# 
+# ggplot(ndata, aes(x = row_id, ymax ))
+# plot(ndata$right_upr)
+# plot(ndata$right_lwr)
 
 
 #No flu
@@ -1093,10 +1094,16 @@ newdata <- data_for_model %>%  #data_for_model$flu_ds #str(data_for_model$v_test
   mutate(flu_d_prop_pos = min(data_for_model$flu_d_prop_pos)) 
 model_pred_no_flu <- predict.glm(object = model2, newdata = newdata, type = "response") 
 table2$yc_n_cases_mean[6] <- sprintf("%.0f", sum(model2$fitted.values) - sum(model_pred_no_flu, na.rm = TRUE))
-table2$yc_p_cases_mean[6] <- sprintf("%.1f", (sum(model2$fitted.values) - sum(model_pred_no_flu, na.rm = TRUE) ) / 
-                                       sum(model2$fitted.values)  )
+table2$yc_p_cases_mean[6] <- sprintf("%.1f", 100*((sum(model2$fitted.values) - sum(model_pred_no_flu, na.rm = TRUE) ) / 
+                                       sum(model2$fitted.values))  )
 
-summary(model2)
+#prepare Table 2 for pasting into excel/word
+table2$yc_n_cases_mean[7] <- sum(as.numeric(table2$yc_n_cases_mean[1:6]))
+table2$yc_p_cases_mean[7] <- sum(as.numeric(table2$yc_p_cases_mean[1:6]))
+
+table2_paste <- data.frame(col1 = paste0(table2$yc_n_cases_mean, " (", table2$yc_n_cases_2.5, " - ", table2$yc_n_cases_97.5, ")"),
+                           col2 = paste0(table2$yc_p_cases_mean, " (", table2$yc_p_cases_2.5, " - ", table2$yc_p_cases_97.5, ")"))
+write.table(table2_paste, "clipboard", sep="\t", row.names=FALSE, col.names=FALSE, quote = FALSE)
 
 # #back of the envelope calculations to see whether these AR estimates are in the right ballpark
 # #predicted RR for a 1 unit increase (i.e., 10x since there's a log10 transformation on pollen): ~1.17
@@ -1104,7 +1111,7 @@ summary(model2)
 # sum(data_for_model$n_cases[22: nrow(data_for_model)] * data_for_model$trees_lm[22: nrow(data_for_model)] * 0.17)
 # (1.17 - 1)/1.17
 
-?predict.glm()
+
 ### attributable risk over time figure ################################################
 attr_t_cup <- attrdl(x = data_for_model$cup_all_lm, basis = cup_lag, cases = data_for_model$n_cases, model = model2, dir = "back", sim = FALSE,
                    cen = 0, tot = FALSE, type = "an", range = NULL)
@@ -1120,25 +1127,25 @@ attr_t_corona <- (c(rep(NA, max_lag + 1), model2$fitted.values) - model_pred_no_
 attr_t_flu <- (c(rep(NA, max_lag + 1), model2$fitted.values) - model_pred_no_flu)
 
 attr_t_baseline <- c(rep(NA, max_lag + 1), model2$fitted.values) #hist(model2$fitted.values)
-attr_df <- data.frame(attr_t_cup, attr_t_trees, attr_t_rhino, attr_t_corona, attr_t_flu, attr_t_baseline, attr_t_other_pol) #attr_t_other_pol, 
+attr_df <- data.frame(attr_t_cup, attr_t_trees, attr_t_rhino, attr_t_corona, attr_t_flu, attr_t_baseline) #attr_t_other_pol, 
 #attr_df[attr_df < 0] <- 0 #removing net protective effects of all variables
 
 # attr_df_p <- attr_df/attr_t_baseline
 # summary(attr_df_p)
 attr_full_df <- bind_cols(data_for_model, attr_df) %>% 
-  mutate(attr_t_unexplained = attr_t_baseline - attr_t_cup - attr_t_trees - attr_t_rhino - attr_t_corona - attr_t_flu 
-                              - attr_t_other_pol) %>% #attr_t_other_pol
+  mutate(attr_t_unexplained = attr_t_baseline - attr_t_cup - attr_t_trees - attr_t_rhino - attr_t_corona - attr_t_flu) %>%  
+                              #- attr_t_other_pol) %>% #attr_t_other_pol
   dplyr::select(date, NAB_station, agegroup_x_pop, 
-                attr_t_unexplained, attr_t_cup, attr_t_trees,  attr_t_rhino, attr_t_corona, attr_t_flu, attr_t_other_pol) %>%   #attr_t_other_pol,
+                attr_t_unexplained, attr_t_cup, attr_t_trees,  attr_t_rhino, attr_t_corona, attr_t_flu) %>%   #attr_t_other_pol,
   pivot_longer(cols = contains("attr_t_"), names_to = "var", values_to = "risk_cases") %>% 
   mutate(week = week(date)) %>% 
   group_by(NAB_station, agegroup_x_pop, week, var) %>% 
   summarize(risk_cases = mean(risk_cases)) %>% 
   mutate(attr_risk_var_unorder = forcats::fct_recode(var, unexplained = "attr_t_unexplained",
                                                      Rhinovirus = "attr_t_rhino", Corona = "attr_t_corona", Influenza = "attr_t_flu",
-                                              Cupressaceae = "attr_t_cup", trees = "attr_t_trees", other_pollen = "attr_t_other_pol"),
+                                              Cupressaceae = "attr_t_cup", trees = "attr_t_trees"),  #other_pollen = "attr_t_other_pol"),
          attr_risk_var = forcats::fct_relevel(attr_risk_var_unorder, c("Rhinovirus", "Corona", "Influenza",
-                                                                       "Cupressaceae", "trees", "unexplained", "other_pollen")),
+                                                                       "Cupressaceae", "trees", "unexplained")), #"other_pollen"
          date2 = lubridate::ymd( "2016-01-01" ) + lubridate::weeks( week - 1 ))
          
 observed_ncases_t <- data_for_model %>% 
@@ -1152,7 +1159,7 @@ observed_ncases_t <- data_for_model %>%
 ggplot(attr_full_df, aes(x = date2, y = (risk_cases / agegroup_x_pop) * 10000, fill = attr_risk_var)) + 
   facet_wrap(~NAB_station) + geom_area() + theme_bw() + scale_fill_viridis_d(name = "attributable risk") + 
   ylab("asthma-related ED visits (per 10,000 people per day)") + xlab("date") +
-  scale_x_date(labels = date_format("%b")) + coord_cartesian(ylim = c(-0.02, .6)) +
+  scale_x_date(labels = date_format("%b")) + coord_cartesian(ylim = c(-0.02, .6)) + #c(-0.01, .15) #c(-0.02, .6)
   geom_step(data = observed_ncases_t, aes( x = date2, y =(mean_cases / agegroup_x_pop) * 10000, 
                                            color = "observed cases")) + scale_color_discrete(name = "")  
   
