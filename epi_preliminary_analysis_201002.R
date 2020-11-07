@@ -788,7 +788,7 @@ pol_other_lag <- crossbasis(data_for_model$pol_other_lm, lag = max_lag,
 #glm.nb can be substituted in, but doesn't seem to change much
 model1 <- glm.nb(n_cases ~ NAB_station + #nb.glm
                     offset(log(agegroup_x_pop)) +  #offset(log(child_pop)) + #offset(log(adult_pop))
-                    cup_lag +  trees_lag + pol_other_lag + 
+                    cup_lag +  trees_lag + #pol_other_lag + 
                     v_tests_perc_pos_Rhinovirus_m+
                     # v_tests_perc_pos_RSV_m+
                     v_tests_perc_pos_Corona_m+
@@ -1144,8 +1144,8 @@ attr_full_df <- bind_cols(data_for_model, attr_df) %>%
   mutate(attr_risk_var_unorder = forcats::fct_recode(var, unexplained = "attr_t_unexplained",
                                                      Rhinovirus = "attr_t_rhino", Corona = "attr_t_corona", Influenza = "attr_t_flu",
                                               Cupressaceae = "attr_t_cup", trees = "attr_t_trees"),  #other_pollen = "attr_t_other_pol"),
-         attr_risk_var = forcats::fct_relevel(attr_risk_var_unorder, c("Rhinovirus", "Corona", "Influenza",
-                                                                       "Cupressaceae", "trees", "unexplained")), #"other_pollen"
+         attr_risk_var = forcats::fct_relevel(attr_risk_var_unorder, c("unexplained", "Rhinovirus", "Corona", "Influenza",
+                                                                       "Cupressaceae", "trees")), #"other_pollen"
          date2 = lubridate::ymd( "2016-01-01" ) + lubridate::weeks( week - 1 ))
          
 observed_ncases_t <- data_for_model %>% 
@@ -1165,15 +1165,65 @@ ggplot(attr_full_df, aes(x = date2, y = (risk_cases / agegroup_x_pop) * 10000, f
   
   
 #for the animation
-observed_ncases_t_example <-filter(observed_ncases_t, NAB_station == "San Antonio B")
-filter(attr_full_df, NAB_station == "San Antonio B") %>%
+
+
+attr_full_df_example <- bind_cols(data_for_model, attr_df) %>% 
+  #mutate(attr_t_unexplained = attr_t_baseline - attr_t_cup - attr_t_trees - attr_t_rhino - attr_t_corona - attr_t_flu) %>%  
+  #- attr_t_other_pol) %>% #attr_t_other_pol
+  dplyr::select(date, NAB_station, agegroup_x_pop, 
+                attr_t_cup, attr_t_trees,  attr_t_rhino, attr_t_corona, attr_t_flu) %>%   #attr_t_other_pol,
+  pivot_longer(cols = contains("attr_t_"), names_to = "var", values_to = "risk_cases") %>% 
+  mutate(week = week(date)) %>% 
+  group_by(NAB_station, agegroup_x_pop, week, var) %>% 
+  summarize(risk_cases = mean(risk_cases)) %>% 
+  mutate(attr_risk_var_unorder = forcats::fct_recode(var, #unexplained = "attr_t_unexplained",
+                                                     Corona = "attr_t_corona", Influenza = "attr_t_flu",
+                                                     Rhinovirus = "attr_t_rhino", Cupressaceae = "attr_t_cup", trees = "attr_t_trees"),  #other_pollen = "attr_t_other_pol"),
+         attr_risk_var = forcats::fct_relevel(attr_risk_var_unorder, c("Corona", "Influenza","Rhinovirus", 
+                                                                        "trees", "Cupressaceae")), #"other_pollen"
+         date2 = lubridate::ymd( "2016-01-01" ) + lubridate::weeks( week - 1 ))
+
+observed_ncases_t_example <-filter(observed_ncases_t, NAB_station == "San Antonio B") 
+
+filter(attr_full_df_example, NAB_station == "San Antonio B") %>% 
+ggplot( aes(x = date2, y = (risk_cases / agegroup_x_pop) * 100000, fill = attr_risk_var)) + 
+ geom_area() + theme_bw() + 
+  scale_fill_manual(name = "attributable risk", values = c(rgb(68, 1, 84, alpha = 0, names = NULL, maxColorValue = 255), #corona
+                                                           rgb(253, 231, 37, alpha = 1, names = NULL, maxColorValue = 255), #cupr
+                                                           rgb(72, 40, 120, alpha = 0, names = NULL, maxColorValue = 255), #flu
+                                                           rgb(49, 104, 142, alpha = 0, names = NULL, maxColorValue = 255),  #rhino
+                                                           rgb(109, 205, 89, alpha = 0, names = NULL, maxColorValue = 255))) + #trees
+  ylab("asthma-related ED visits (per 100,000 people per day)") + xlab("date") +
+  scale_x_date(labels = date_format("%b")) + coord_cartesian(ylim = c(-0.02, 8)) + #c(-0.01, .15) #c(-0.02, .6)
+  geom_step(data = observed_ncases_t_example, aes( x = date2, y =(mean_cases / agegroup_x_pop) * 100000,
+                                                   color = "observed cases", fill = NA), 
+            color = rgb(1,0,0, alpha = 1, maxColorValue = 1)) +
+  theme(text = element_text(size=18))
+
+
+
+
+bind_cols(data_for_model, attr_df) %>% 
+  mutate(attr_t_unexplained = attr_t_baseline - attr_t_cup - attr_t_trees - attr_t_rhino - attr_t_corona - attr_t_flu) %>%  
+  #- attr_t_other_pol) %>% #attr_t_other_pol
+  dplyr::select(date, NAB_station, agegroup_x_pop, 
+                attr_t_unexplained, attr_t_cup, attr_t_trees,  attr_t_rhino, attr_t_corona, attr_t_flu) %>%   #attr_t_other_pol,
+  pivot_longer(cols = contains("attr_t_"), names_to = "var", values_to = "risk_cases") %>% 
+  mutate(week = week(date)) %>% 
+  group_by(NAB_station, agegroup_x_pop, week, var) %>% 
+  summarize(risk_cases = mean(risk_cases)) %>% 
+  filter(attr_full_df, NAB_station == "San Antonio B") %>%
+  filter(var != "attr_t_unexplained")  %>% 
+  mutate(attr_risk_var_unorder = forcats::fct_recode(var, #unexplained = "attr_t_unexplained",
+                                                     Rhinovirus = "attr_t_rhino", Corona = "attr_t_corona", Influenza = "attr_t_flu",
+                                                     Cupressaceae = "attr_t_cup", trees = "attr_t_trees"),  #other_pollen = "attr_t_other_pol"),
+         attr_risk_var = forcats::fct_relevel(attr_risk_var_unorder, c("Rhinovirus", "Corona", "Influenza",
+                                                                       "Cupressaceae", "trees"))) %>% 
 ggplot(aes(x = date2, y = (risk_cases / agegroup_x_pop) * 10000, fill = attr_risk_var)) +
   geom_area() +
   theme_bw() + scale_fill_viridis_d(name = "attributable risk") +
   ylab("asthma-related ED visits (per 10,000 people per day)") + xlab("date") +
   scale_x_date(labels = date_format("%b")) + coord_cartesian(ylim = c(-0.02, .7)) +
-  geom_step(data = observed_ncases_t_example, aes( x = date2, y =(mean_cases / agegroup_x_pop) * 10000,
-                                           color = "observed cases")) + scale_color_discrete(name = "")
 
 
 
