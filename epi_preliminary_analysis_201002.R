@@ -28,6 +28,8 @@ NAB_locations <- read_csv("C:/Users/dsk856/Desktop/misc_data/EPHT_Pollen Station
 NAB <- read_csv("C:/Users/dsk856/Desktop/misc_data/NAB2009_2019_pollen_191230.csv", guess_max = 92013)
 # NAB_modeled_orig <- read_csv("C:/Users/dsk856/Desktop/misc_data/NAB_pollen_modeled200618.csv", guess_max = 31912)
 NAB_modeled <- read_csv("C:/Users/dsk856/Desktop/misc_data/NAB_pollen_modeled200810.csv", guess_max = 31912)
+#NAB_modeled <- read_csv("C:/Users/dsk856/Desktop/misc_data/NAB_pollen_modeled_linear_interp_201002.csv", guess_max = 31912)
+
 # msa <- read.csv("C:/Users/dsk856/Desktop/misc_data/county_to_MSA_clean.csv", stringsAsFactors = FALSE)
 # msa$FIPS <- sprintf("%03s",msa$FIPS) %>% sub(" ", "0",.) %>% sub(" ", "0",.)
 
@@ -784,12 +786,20 @@ trees_lag <- crossbasis(data_for_model$trees_lm, lag = max_lag,
 pol_other_lag <- crossbasis(data_for_model$pol_other_lm, lag = max_lag,
                             argvar=list(fun = "poly", degree = 3), arglag = list(fun = "poly", degree = 3))
 
+#viruses for use with attrdl function for AR
+rhino_lag <- crossbasis(data_for_model$v_tests_perc_pos_Rhinovirus_m, lag = 0,
+                       argvar=list(fun = "lin"), arglag = list(fun = "lin"))
+# corona_lag <- crossbasis(data_for_model$pol_other_lm, lag = max_lag,
+#                         argvar=list(fun = "poly", degree = 3), arglag = list(fun = "poly", degree = 3))
+# 
+# flu_lag
 
 #glm.nb can be substituted in, but doesn't seem to change much
 model1 <- glm.nb(n_cases ~ NAB_station + #nb.glm
                     offset(log(agegroup_x_pop)) +  #offset(log(child_pop)) + #offset(log(adult_pop))
                     cup_lag +  trees_lag + #pol_other_lag + 
-                    v_tests_perc_pos_Rhinovirus_m+
+                   rhino_lag +
+                   #v_tests_perc_pos_Rhinovirus_m+
                     # v_tests_perc_pos_RSV_m+
                     v_tests_perc_pos_Corona_m+
                     flu_d_prop_pos + #flu_d_total_pos + flu_d_prop_pos
@@ -943,7 +953,7 @@ child_lag_RR_x_pol_other_25km <-
 #saving the figs 
 #child_pol_25km <-
   cowplot::plot_grid(child_RR_x_cup_25km, child_lag_RR_x_cup_25km, child_RR_x_trees_25km, child_lag_RR_x_trees_25km,
-                     child_RR_x_pol_other_25km, child_lag_RR_x_pol_other_25km,
+                     #child_RR_x_pol_other_25km, child_lag_RR_x_pol_other_25km,
                    ncol = 2, labels = c("A) Cupressaceae pollen", 
                                         "B) Cupressaceae pollen by lag", 
                                         "C) tree pollen", 
@@ -956,8 +966,20 @@ child_lag_RR_x_pol_other_25km <-
 # ggsave(file = "C:/Users/dsk856/Desktop/thcic_analysis/child_pol_25km_200918.jpg", plot = ts_panels, 
 #        height =20, width = 17, units = "cm", dpi = 300)  
 
-
-
+### same thing but for viruses
+  
+  ## pol_other
+  pred1_rhino <- crosspred(rhino_lag,  model2, cen = 0, cumul = TRUE,
+                               at = seq(from = 0, to = max(data_for_model$v_tests_perc_pos_Rhinovirus_m), by = 1))
+    
+  data.frame(rhino_conc = pred1_rhino$predvar,
+               mean = pred1_rhino$allRRfit,
+               lower = pred1_rhino$allRRlow,
+               upper = pred1_rhino$allRRhigh) %>%
+    ggplot(aes(x = rhino_conc, y = mean, ymin = lower, ymax = upper))+
+    geom_ribbon(alpha=0.1)+ geom_line()+ geom_hline(lty=2, yintercept = 1)+ # horizontal reference line at no change in odds
+    xlab("rhino")+ ylab('RR')+theme_few() #+ scale_x_log10() + 
+    #annotation_logticks(sides = "b")  
 
 
 ### attributable risk ##########################################
@@ -1001,7 +1023,18 @@ table2$yc_p_cases_2.5[3] <- sprintf("%.1f", 100*as.numeric(quantile(other_pol_at
 table2$yc_p_cases_97.5[3] <- sprintf("%.1f", 100*as.numeric(quantile(other_pol_attr, probs = 0.975))/sum(model2$fitted.values))
 
 
-#no viruses
+#rhinovirus
+rhino_attr <- attrdl(x = data_for_model$v_tests_adj_pos_Rhinovirus_m, basis = rhino_lag, cases = data_for_model$n_cases, model = model2, dir = "back", sim = TRUE,
+                   cen = 0, tot = TRUE, type = "an", range = NULL, nsim = 10000)
+table2$yc_n_cases_mean[4] <- sprintf("%.0f", mean(rhino_attr))
+table2$yc_n_cases_2.5[4] <- sprintf("%.0f", as.numeric(quantile(rhino_attr, probs = 0.025)))
+table2$yc_n_cases_97.5[4] <- sprintf("%.0f", as.numeric(quantile(rhino_attr, probs = 0.975)))
+table2$yc_p_cases_mean[4] <- sprintf("%.1f", 100*mean(rhino_attr) / sum(model2$fitted.values))
+table2$yc_p_cases_2.5[4] <- sprintf("%.1f", 100*as.numeric(quantile(rhino_attr, probs = 0.025))/sum(model2$fitted.values))
+table2$yc_p_cases_97.5[4] <- sprintf("%.1f", 100*as.numeric(quantile(rhino_attr, probs = 0.975))/sum(model2$fitted.values))
+
+
+
 #using predict.glm to get the mean and then following Gavin Simpson's instructions to get the CI
 #https://fromthebottomoftheheap.net/2018/12/10/confidence-intervals-for-glms/
 
@@ -1129,7 +1162,7 @@ attr_t_flu <- (c(rep(NA, max_lag + 1), model2$fitted.values) - model_pred_no_flu
 attr_t_baseline <- c(rep(NA, max_lag + 1), model2$fitted.values) #hist(model2$fitted.values)
 attr_df <- data.frame(attr_t_cup, attr_t_trees, attr_t_rhino, attr_t_corona, attr_t_flu, attr_t_baseline) #attr_t_other_pol, 
 #attr_df[attr_df < 0] <- 0 #removing net protective effects of all variables
-
+data_for_model$n_cases
 # attr_df_p <- attr_df/attr_t_baseline
 # summary(attr_df_p)
 attr_full_df <- bind_cols(data_for_model, attr_df) %>% 
