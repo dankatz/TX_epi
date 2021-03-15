@@ -27,8 +27,12 @@ rm(list = ls())
 NAB_locations <- read_csv("C:/Users/dsk856/Desktop/misc_data/EPHT_Pollen Station Inventory_062019_dk200331.csv")
 NAB <- read_csv("C:/Users/dsk856/Desktop/misc_data/NAB2009_2019_pollen_191230.csv", guess_max = 92013)
 # NAB_modeled_orig <- read_csv("C:/Users/dsk856/Desktop/misc_data/NAB_pollen_modeled200618.csv", guess_max = 31912)
-NAB_modeled <- read_csv("C:/Users/dsk856/Desktop/misc_data/NAB_pollen_modeled200810.csv", guess_max = 31912)
-#NAB_modeled <- read_csv("C:/Users/dsk856/Desktop/misc_data/NAB_pollen_modeled_linear_interp_201002.csv", guess_max = 31912)
+NAB_modeled_rf <- read_csv("C:/Users/dsk856/Desktop/misc_data/NAB_pollen_modeled200810.csv", guess_max = 31912)
+NAB_modeled <- read_csv("C:/Users/dsk856/Desktop/misc_data/NAB_pollen_modeled_linear_interp_210311.csv", guess_max = 31912) %>% 
+  dplyr::select(NAB_station, date, #
+                Cupressaceae, trees, other_pollen, #raw
+                cup_log10, trees_log10, pol_other_log10, #log10 + 1 transform
+                cup_lm, trees_lm, pol_other_lm) #linear interpolation of log10 data 
 
 # msa <- read.csv("C:/Users/dsk856/Desktop/misc_data/county_to_MSA_clean.csv", stringsAsFactors = FALSE)
 # msa$FIPS <- sprintf("%03s",msa$FIPS) %>% sub(" ", "0",.) %>% sub(" ", "0",.)
@@ -729,7 +733,8 @@ data_for_model <- opa_day %>%
     child_pop = children_pop,
     log_adult_pop = log(adult_pop),
     log_agegroup_x_pop = log(agegroup_x_pop),
-    NAB_station_n = as.numeric(as.factor(NAB_station))
+    NAB_station_n = as.numeric(as.factor(NAB_station)),
+    flu_d_perc_pos = flu_d_prop_pos *100
     # met_prcp_flag = ifelse(met_prcpmmday > 0, 1, 0),
     # met_prcpmmday_l = log(met_prcpmmday + 1),
     # met_prcpmmday_ls = scale(met_prcpmmday_l),
@@ -755,7 +760,7 @@ data_for_model <- opa_day %>%
                 v_tests_adj_pos_Rhinovirus_m,
                 v_tests_adj_pos_RSV_m,
                 v_tests_adj_pos_Corona_m,
-                flu_d_prop_pos
+                flu_d_perc_pos
               #  flu_d_total_pos #,
                  # met_prcpmmday, met_sradWm2, met_tmaxdegc, met_tmindegc, met_vpPa, #hist(data_for_model$met_prcpmmday_ls)
                  # met_prcpmmday_l, met_prcpmmday_ls, met_sradWm2_s, met_tmaxdegc_s, met_tmindegc_s, met_vpPa_s, met_tavg_s, met_prcp_flag
@@ -789,20 +794,22 @@ pol_other_lag <- crossbasis(data_for_model$pol_other_lm, lag = max_lag,
 #viruses for use with attrdl function for AR
 rhino_lag <- crossbasis(data_for_model$v_tests_perc_pos_Rhinovirus_m, lag = 0,
                        argvar=list(fun = "lin"), arglag = list(fun = "lin"))
-# corona_lag <- crossbasis(data_for_model$pol_other_lm, lag = max_lag,
-#                         argvar=list(fun = "poly", degree = 3), arglag = list(fun = "poly", degree = 3))
-# 
-# flu_lag
+corona_lag <- crossbasis(data_for_model$v_tests_perc_pos_Corona_m, lag = 0,
+                         argvar=list(fun = "lin"), arglag = list(fun = "lin"))
+flu_lag <- crossbasis(data_for_model$flu_d_perc_pos, lag = 0, 
+                         argvar=list(fun = "lin"), arglag = list(fun = "lin"))
 
 #glm.nb can be substituted in, but doesn't seem to change much
 model1 <- glm.nb(n_cases ~ NAB_station + #nb.glm
                     offset(log(agegroup_x_pop)) +  #offset(log(child_pop)) + #offset(log(adult_pop))
-                    cup_lag +  trees_lag + #pol_other_lag + 
+                    cup_lag +  trees_lag + pol_other_lag + 
                    rhino_lag +
+                   corona_lag +
+                   flu_lag + 
                    #v_tests_perc_pos_Rhinovirus_m+
                     # v_tests_perc_pos_RSV_m+
-                    v_tests_perc_pos_Corona_m+
-                    flu_d_prop_pos + #flu_d_total_pos + flu_d_prop_pos
+                    #v_tests_perc_pos_Corona_m+
+                    #flu_d_prop_pos + #flu_d_total_pos + flu_d_prop_pos
                     week_day + 
                      # met_vpPa +
                      #met_prcpmmday_ls +
@@ -852,6 +859,7 @@ model2 <- update(model1, .~. + tsModel::Lag(resid_model1, 1))
 # summary(model1)
 # summary(model2)
 
+### visualize effects of pollen ###############################################################
 #cup all  
 pred1_cup <- crosspred(cup_lag,  model2, #at = 1,
                       at = seq(from = 0, to = max(data_for_model$cup_all_lm), by = 0.10), 
@@ -953,7 +961,7 @@ child_lag_RR_x_pol_other_25km <-
 #saving the figs 
 #child_pol_25km <-
   cowplot::plot_grid(child_RR_x_cup_25km, child_lag_RR_x_cup_25km, child_RR_x_trees_25km, child_lag_RR_x_trees_25km,
-                     #child_RR_x_pol_other_25km, child_lag_RR_x_pol_other_25km,
+                     child_RR_x_pol_other_25km, child_lag_RR_x_pol_other_25km,
                    ncol = 2, labels = c("A) Cupressaceae pollen", 
                                         "B) Cupressaceae pollen by lag", 
                                         "C) tree pollen", 
@@ -966,21 +974,41 @@ child_lag_RR_x_pol_other_25km <-
 # ggsave(file = "C:/Users/dsk856/Desktop/thcic_analysis/child_pol_25km_200918.jpg", plot = ts_panels, 
 #        height =20, width = 17, units = "cm", dpi = 300)  
 
-### same thing but for viruses
   
-  ## pol_other
+### visualize effects of viruses ###############################################################
+  
+  ## rhinovirus
   pred1_rhino <- crosspred(rhino_lag,  model2, cen = 0, cumul = TRUE,
                                at = seq(from = 0, to = max(data_for_model$v_tests_perc_pos_Rhinovirus_m), by = 1))
-    
   data.frame(rhino_conc = pred1_rhino$predvar,
                mean = pred1_rhino$allRRfit,
                lower = pred1_rhino$allRRlow,
                upper = pred1_rhino$allRRhigh) %>%
     ggplot(aes(x = rhino_conc, y = mean, ymin = lower, ymax = upper))+
     geom_ribbon(alpha=0.1)+ geom_line()+ geom_hline(lty=2, yintercept = 1)+ # horizontal reference line at no change in odds
-    xlab("rhino")+ ylab('RR')+theme_few() #+ scale_x_log10() + 
-    #annotation_logticks(sides = "b")  
+    xlab("rhino")+ ylab('RR')+theme_few() 
 
+  ## corona
+  pred1_corona <- crosspred(corona_lag,  model2, cen = 0, cumul = TRUE,
+                           at = seq(from = 0, to = max(data_for_model$v_tests_perc_pos_Corona_m), by = 1))
+  data.frame(corona_conc = pred1_corona$predvar,
+             mean = pred1_corona$allRRfit,
+             lower = pred1_corona$allRRlow,
+             upper = pred1_corona$allRRhigh) %>%
+    ggplot(aes(x = corona_conc, y = mean, ymin = lower, ymax = upper))+
+    geom_ribbon(alpha=0.1)+ geom_line()+ geom_hline(lty=2, yintercept = 1)+ # horizontal reference line at no change in odds
+    xlab("corona")+ ylab('RR')+theme_few() 
+  
+  ## flu
+  pred1_flu <- crosspred(flu_lag,  model2, cen = 0, cumul = TRUE,
+                            at = seq(from = 0, to = max(data_for_model$flu_d_perc_pos), by = 1))
+  data.frame(flu_conc = pred1_flu$predvar,
+             mean = pred1_flu$allRRfit,
+             lower = pred1_flu$allRRlow,
+             upper = pred1_flu$allRRhigh) %>%
+    ggplot(aes(x = flu_conc, y = mean, ymin = lower, ymax = upper))+
+    geom_ribbon(alpha=0.1)+ geom_line()+ geom_hline(lty=2, yintercept = 1)+ # horizontal reference line at no change in odds
+    xlab("flu")+ ylab('RR')+theme_few() 
 
 ### attributable risk ##########################################
 #https://github.com/gasparrini/2015_gasparrini_Lancet_Rcodedata/blob/master/attrdl.R
@@ -1022,9 +1050,8 @@ table2$yc_p_cases_mean[3] <- sprintf("%.1f", 100* mean(other_pol_attr) / sum(mod
 table2$yc_p_cases_2.5[3] <- sprintf("%.1f", 100*as.numeric(quantile(other_pol_attr, probs = 0.025))/sum(model2$fitted.values))
 table2$yc_p_cases_97.5[3] <- sprintf("%.1f", 100*as.numeric(quantile(other_pol_attr, probs = 0.975))/sum(model2$fitted.values))
 
-
 #rhinovirus
-rhino_attr <- attrdl(x = data_for_model$v_tests_adj_pos_Rhinovirus_m, basis = rhino_lag, cases = data_for_model$n_cases, model = model2, dir = "back", sim = TRUE,
+rhino_attr <- attrdl(x = data_for_model$v_tests_perc_pos_Rhinovirus_m, basis = rhino_lag, cases = data_for_model$n_cases, model = model2, dir = "back", sim = TRUE,
                    cen = 0, tot = TRUE, type = "an", range = NULL, nsim = 10000)
 table2$yc_n_cases_mean[4] <- sprintf("%.0f", mean(rhino_attr))
 table2$yc_n_cases_2.5[4] <- sprintf("%.0f", as.numeric(quantile(rhino_attr, probs = 0.025)))
@@ -1033,106 +1060,31 @@ table2$yc_p_cases_mean[4] <- sprintf("%.1f", 100*mean(rhino_attr) / sum(model2$f
 table2$yc_p_cases_2.5[4] <- sprintf("%.1f", 100*as.numeric(quantile(rhino_attr, probs = 0.025))/sum(model2$fitted.values))
 table2$yc_p_cases_97.5[4] <- sprintf("%.1f", 100*as.numeric(quantile(rhino_attr, probs = 0.975))/sum(model2$fitted.values))
 
+#corona
+corona_attr <- attrdl(x = data_for_model$v_tests_perc_pos_Corona_m, basis = corona_lag, cases = data_for_model$n_cases, model = model2, dir = "back", sim = TRUE,
+                     cen = 0, tot = TRUE, type = "an", range = NULL, nsim = 10000)
+table2$yc_n_cases_mean[5] <- sprintf("%.0f", mean(corona_attr))
+table2$yc_n_cases_2.5[5] <- sprintf("%.0f", as.numeric(quantile(corona_attr, probs = 0.025)))
+table2$yc_n_cases_97.5[5] <- sprintf("%.0f", as.numeric(quantile(corona_attr, probs = 0.975)))
+table2$yc_p_cases_mean[5] <- sprintf("%.1f", 100*mean(corona_attr) / sum(model2$fitted.values))
+table2$yc_p_cases_2.5[5] <- sprintf("%.1f", 100*as.numeric(quantile(corona_attr, probs = 0.025))/sum(model2$fitted.values))
+table2$yc_p_cases_97.5[5] <- sprintf("%.1f", 100*as.numeric(quantile(corona_attr, probs = 0.975))/sum(model2$fitted.values))
+
+#flu
+flu_attr <- attrdl(x = data_for_model$flu_d_perc_pos, basis = flu_lag, cases = data_for_model$n_cases, model = model2, dir = "back", sim = TRUE,
+                      cen = 0, tot = TRUE, type = "an", range = NULL, nsim = 10000)
+table2$yc_n_cases_mean[6] <- sprintf("%.0f", mean(flu_attr))
+table2$yc_n_cases_2.5[6] <- sprintf("%.0f", as.numeric(quantile(flu_attr, probs = 0.025)))
+table2$yc_n_cases_97.5[6] <- sprintf("%.0f", as.numeric(quantile(flu_attr, probs = 0.975)))
+table2$yc_p_cases_mean[6] <- sprintf("%.1f", 100*mean(flu_attr) / sum(model2$fitted.values))
+table2$yc_p_cases_2.5[6] <- sprintf("%.1f", 100*as.numeric(quantile(flu_attr, probs = 0.025))/sum(model2$fitted.values))
+table2$yc_p_cases_97.5[6] <- sprintf("%.1f", 100*as.numeric(quantile(flu_attr, probs = 0.975))/sum(model2$fitted.values))
 
 
-#using predict.glm to get the mean and then following Gavin Simpson's instructions to get the CI
-#https://fromthebottomoftheheap.net/2018/12/10/confidence-intervals-for-glms/
-
-# str(model2)
-# model2$effects
-# ?predict.glm
-# getAnywhere(predict.glm())
-# summary(model2)
-# summary.glm
-
-#No rhinovirus #hist(data_for_model$v_tests_perc_pos_Rhinovirus_ms)
-newdata <- data_for_model %>%  #data_for_model$v_tests_perc_pos_Rhinovirus_ms #str(data_for_model$v_tests_pos_Rhinoviruss)
-  #mutate(v_tests_perc_pos_Rhinovirus_m = 0) 
-  mutate(v_tests_perc_pos_Rhinovirus_m = 0)#min(data_for_model$v_tests_perc_pos_Rhinovirus_m) )
-model_pred_no_rhino <- predict.glm(object = model2, newdata = newdata, type = "response")  #str(model_pred)
-table2$yc_n_cases_mean[4] <- sprintf("%.0f", sum(model2$fitted.values) - sum(model_pred_no_rhino, na.rm = TRUE))
-table2$yc_p_cases_mean[4] <- sprintf("%.1f", 100*((sum(model2$fitted.values) - sum(model_pred_no_rhino, na.rm = TRUE) ) / 
-                                       sum(model2$fitted.values)) )
-
-# #No RSV
-# newdata <- data_for_model %>%  #data_for_model$v_tests_perc_pos_RSV_ms #str(data_for_model$v_tests_pos_RSV)
-#   mutate(v_tests_perc_pos_RSV_ms = 0)
-# model_pred_no_RSV <- predict.glm(object = model2, newdata = newdata, type = "response") 
-# sum(model2$fitted.values) 
-# sum(model_pred_no_RSV, na.rm = TRUE)
-# (sum(model2$fitted.values) - sum(model_pred_no_RSV, na.rm = TRUE) ) / sum(model2$fitted.values) 
-
-#No corona
-newdata <- data_for_model %>%  #data_for_model$v_tests_perc_pos_RSV_ms #str(data_for_model$v_tests_pos_RSV)
-  mutate(v_tests_perc_pos_Corona_m = 0) 
-model_pred_no_corona <- predict.glm(object = model2, newdata = newdata, type = "response") 
-table2$yc_n_cases_mean[5] <- sprintf("%.0f", sum(model2$fitted.values) - sum(model_pred_no_corona, na.rm = TRUE))
-table2$yc_p_cases_mean[5] <- sprintf("%.1f", 100*((sum(model2$fitted.values) - sum(model_pred_no_corona, na.rm = TRUE) ) / 
-                                       sum(model2$fitted.values))  )
-# 
-# #MESSING AROUND WITH TRYING TO GET CIs FOR VIRUSES. NO LUCK SO FAR
-# model_pred_no_corona <- predict.glm(object = model2, newdata = newdata, type = "response", se.fit = TRUE) 
-# plot(model_pred_no_corona$fit)
-# plot(model_pred_no_corona$se.fit)
-# 
-# family(model2)
-# ?predict.glm
-# # model_pred_no_corona <- predict.glm(object = model2, newdata = newdata, type = "response", se.fit = TRUE) 
-# # test <- ginv(na.omit(model_pred_no_corona[[1]] - 1.96 * model_pred_no_corona[[2]]))
-# # sum(model_pred_no_corona[[1]] + 1.96 * model_pred_no_corona[[2]], na.rm = TRUE)
-# var(data_for_model$n_cases)
-# 
-# model_pred_no_corona <- predict.glm(object = model2, newdata = newdata, type = "response", se.fit = TRUE) 
-# test <- data.frame(stan_fit = model_pred_no_corona$fit, 
-#                    stan_fit_lo = model_pred_no_corona$fit - 1.96 * model_pred_no_corona$se.fit,
-#                    stan_fit_hi = model_pred_no_corona$fit + 1.96 * model_pred_no_corona$se.fit)
-# test %>% ungroup() %>% mutate(rowid = 1:8250) %>% 
-#   ggplot(aes(x = rowid, y = stan_fit, ymax = stan_fit_hi, ymin = stan_fit_lo)) + geom_linerange() + theme_bw() + 
-#   coord_cartesian(xlim=c(800,850)) + geom_point()
-# 
-# ## grad the inverse link function
-# ilink <- family(model2)$linkinv
-# ## add fit and se.fit on the **link** scale
-# ndata <- bind_cols(newdata, setNames(as_tibble(predict(model2, newdata, se.fit = TRUE)[1:2]),
-#                                    c('fit_link','se_link')))
-# ## create the interval and backtransform
-# ndata <- mutate(ndata,
-#                 fit_resp  = ilink(fit_link),
-#                 right_upr = ilink(fit_link + (1.96 * se_link)),
-#                 right_lwr = ilink(fit_link - (1.96 * se_link)))
-# sum(ndata$fit_resp, na.rm = TRUE)
-# sum(ndata$fit_resp, na.rm = TRUE) - sum(ndata$right_lwr, na.rm = TRUE)
-# sum(ndata$right_upr, na.rm = TRUE) - sum(ndata$fit_resp, na.rm = TRUE)
-# 
-# #model_pred_no_corona <- predict.glm(object = model2, newdata = newdata, type = "response", se.fit = TRUE)
-# 
-# 
-# test3 <- cbind(ndata, test)
-# 
-# test3 %>% ungroup() %>% mutate(rowid = 1:8250) %>% 
-#   ggplot(aes(x = rowid, y = stan_fit, ymax = stan_fit_hi, ymin = stan_fit_lo)) + geom_linerange() + theme_bw() + 
-#   coord_cartesian(xlim=c(800,850)) +
-#   geom_point(aes(x=rowid, y = right_upr), col = "red") +
-#   geom_point(aes(x=rowid, y = right_lwr), col = "blue") +
-#   geom_point(aes(x=rowid, y = fit_resp), col = "black") 
-# plot(test)
-# 
-# ggplot(ndata, aes(x = row_id, ymax ))
-# plot(ndata$right_upr)
-# plot(ndata$right_lwr)
-
-
-#No flu
-newdata <- data_for_model %>%  #data_for_model$flu_ds #str(data_for_model$v_tests_pos_RSV)
-  mutate(flu_d_prop_pos = min(data_for_model$flu_d_prop_pos)) 
-model_pred_no_flu <- predict.glm(object = model2, newdata = newdata, type = "response") 
-table2$yc_n_cases_mean[6] <- sprintf("%.0f", sum(model2$fitted.values) - sum(model_pred_no_flu, na.rm = TRUE))
-table2$yc_p_cases_mean[6] <- sprintf("%.1f", 100*((sum(model2$fitted.values) - sum(model_pred_no_flu, na.rm = TRUE) ) / 
-                                       sum(model2$fitted.values))  )
 
 #prepare Table 2 for pasting into excel/word
 table2$yc_n_cases_mean[7] <- sum(as.numeric(table2$yc_n_cases_mean[1:6]))
-table2$yc_p_cases_mean[7] <- sum(as.numeric(table2$yc_p_cases_mean[1:6]))
+table2$yc_p_cases_mean[7] <- sum(as.numeric(table2$yc_p_cases_mean[1:6]), na.rm = T)
 
 table2_paste <- data.frame(col1 = paste0(table2$yc_n_cases_mean, " (", table2$yc_n_cases_2.5, " - ", table2$yc_n_cases_97.5, ")"),
                            col2 = paste0(table2$yc_p_cases_mean, " (", table2$yc_p_cases_2.5, " - ", table2$yc_p_cases_97.5, ")"))
@@ -1665,6 +1617,102 @@ ggplot(adult_attr_full_df, aes(x = date2, y = (prop_risk /adult_pop) * 10000, fi
 #######################################################################################################
 ########################old stuff ##############################
 #######################################################################################################
+
+#using predict.glm to get the mean and then following Gavin Simpson's instructions to get the CI
+# #https://fromthebottomoftheheap.net/2018/12/10/confidence-intervals-for-glms/
+# 
+# # str(model2)
+# # model2$effects
+# # ?predict.glm
+# # getAnywhere(predict.glm())
+# # summary(model2)
+# # summary.glm
+# 
+# #No rhinovirus #hist(data_for_model$v_tests_perc_pos_Rhinovirus_ms)
+# newdata <- data_for_model %>%  #data_for_model$v_tests_perc_pos_Rhinovirus_ms #str(data_for_model$v_tests_pos_Rhinoviruss)
+#   #mutate(v_tests_perc_pos_Rhinovirus_m = 0) 
+#   mutate(v_tests_perc_pos_Rhinovirus_m = 0)#min(data_for_model$v_tests_perc_pos_Rhinovirus_m) )
+# model_pred_no_rhino <- predict.glm(object = model2, newdata = newdata, type = "response")  #str(model_pred)
+# table2$yc_n_cases_mean[4] <- sprintf("%.0f", sum(model2$fitted.values) - sum(model_pred_no_rhino, na.rm = TRUE))
+# table2$yc_p_cases_mean[4] <- sprintf("%.1f", 100*((sum(model2$fitted.values) - sum(model_pred_no_rhino, na.rm = TRUE) ) / 
+#                                                     sum(model2$fitted.values)) )
+# 
+# # #No RSV
+# # newdata <- data_for_model %>%  #data_for_model$v_tests_perc_pos_RSV_ms #str(data_for_model$v_tests_pos_RSV)
+# #   mutate(v_tests_perc_pos_RSV_ms = 0)
+# # model_pred_no_RSV <- predict.glm(object = model2, newdata = newdata, type = "response") 
+# # sum(model2$fitted.values) 
+# # sum(model_pred_no_RSV, na.rm = TRUE)
+# # (sum(model2$fitted.values) - sum(model_pred_no_RSV, na.rm = TRUE) ) / sum(model2$fitted.values) 
+# 
+# #No corona
+# newdata <- data_for_model %>%  #data_for_model$v_tests_perc_pos_RSV_ms #str(data_for_model$v_tests_pos_RSV)
+#   mutate(v_tests_perc_pos_Corona_m = 0) 
+# model_pred_no_corona <- predict.glm(object = model2, newdata = newdata, type = "response") 
+# table2$yc_n_cases_mean[5] <- sprintf("%.0f", sum(model2$fitted.values) - sum(model_pred_no_corona, na.rm = TRUE))
+# table2$yc_p_cases_mean[5] <- sprintf("%.1f", 100*((sum(model2$fitted.values) - sum(model_pred_no_corona, na.rm = TRUE) ) / 
+#                                                     sum(model2$fitted.values))  )
+# # 
+# # #MESSING AROUND WITH TRYING TO GET CIs FOR VIRUSES. NO LUCK SO FAR
+# # model_pred_no_corona <- predict.glm(object = model2, newdata = newdata, type = "response", se.fit = TRUE) 
+# # plot(model_pred_no_corona$fit)
+# # plot(model_pred_no_corona$se.fit)
+# # 
+# # family(model2)
+# # ?predict.glm
+# # # model_pred_no_corona <- predict.glm(object = model2, newdata = newdata, type = "response", se.fit = TRUE) 
+# # # test <- ginv(na.omit(model_pred_no_corona[[1]] - 1.96 * model_pred_no_corona[[2]]))
+# # # sum(model_pred_no_corona[[1]] + 1.96 * model_pred_no_corona[[2]], na.rm = TRUE)
+# # var(data_for_model$n_cases)
+# # 
+# # model_pred_no_corona <- predict.glm(object = model2, newdata = newdata, type = "response", se.fit = TRUE) 
+# # test <- data.frame(stan_fit = model_pred_no_corona$fit, 
+# #                    stan_fit_lo = model_pred_no_corona$fit - 1.96 * model_pred_no_corona$se.fit,
+# #                    stan_fit_hi = model_pred_no_corona$fit + 1.96 * model_pred_no_corona$se.fit)
+# # test %>% ungroup() %>% mutate(rowid = 1:8250) %>% 
+# #   ggplot(aes(x = rowid, y = stan_fit, ymax = stan_fit_hi, ymin = stan_fit_lo)) + geom_linerange() + theme_bw() + 
+# #   coord_cartesian(xlim=c(800,850)) + geom_point()
+# # 
+# # ## grad the inverse link function
+# # ilink <- family(model2)$linkinv
+# # ## add fit and se.fit on the **link** scale
+# # ndata <- bind_cols(newdata, setNames(as_tibble(predict(model2, newdata, se.fit = TRUE)[1:2]),
+# #                                    c('fit_link','se_link')))
+# # ## create the interval and backtransform
+# # ndata <- mutate(ndata,
+# #                 fit_resp  = ilink(fit_link),
+# #                 right_upr = ilink(fit_link + (1.96 * se_link)),
+# #                 right_lwr = ilink(fit_link - (1.96 * se_link)))
+# # sum(ndata$fit_resp, na.rm = TRUE)
+# # sum(ndata$fit_resp, na.rm = TRUE) - sum(ndata$right_lwr, na.rm = TRUE)
+# # sum(ndata$right_upr, na.rm = TRUE) - sum(ndata$fit_resp, na.rm = TRUE)
+# # 
+# # #model_pred_no_corona <- predict.glm(object = model2, newdata = newdata, type = "response", se.fit = TRUE)
+# # 
+# # 
+# # test3 <- cbind(ndata, test)
+# # 
+# # test3 %>% ungroup() %>% mutate(rowid = 1:8250) %>% 
+# #   ggplot(aes(x = rowid, y = stan_fit, ymax = stan_fit_hi, ymin = stan_fit_lo)) + geom_linerange() + theme_bw() + 
+# #   coord_cartesian(xlim=c(800,850)) +
+# #   geom_point(aes(x=rowid, y = right_upr), col = "red") +
+# #   geom_point(aes(x=rowid, y = right_lwr), col = "blue") +
+# #   geom_point(aes(x=rowid, y = fit_resp), col = "black") 
+# # plot(test)
+# # 
+# # ggplot(ndata, aes(x = row_id, ymax ))
+# # plot(ndata$right_upr)
+# # plot(ndata$right_lwr)
+# 
+# 
+# #No flu
+# newdata <- data_for_model %>%  #data_for_model$flu_ds #str(data_for_model$v_tests_pos_RSV)
+#   mutate(flu_d_prop_pos = min(data_for_model$flu_d_prop_pos)) 
+# model_pred_no_flu <- predict.glm(object = model2, newdata = newdata, type = "response") 
+# table2$yc_n_cases_mean[6] <- sprintf("%.0f", sum(model2$fitted.values) - sum(model_pred_no_flu, na.rm = TRUE))
+# table2$yc_p_cases_mean[6] <- sprintf("%.1f", 100*((sum(model2$fitted.values) - sum(model_pred_no_flu, na.rm = TRUE) ) / 
+#                                                     sum(model2$fitted.values))  )
+# 
 str(model_pred)
 
 trees_lag <- crossbasis(data_for_model$trees_lm, lag = 21, 
