@@ -16,85 +16,175 @@ library(tidycensus)
 library(tigris)
 options(tigris_use_cache = TRUE)
 library(lwgeom)
+library(imputeTS)
 #install.packages("tidycensus")
 #library(rjags)
 
 rm(list = ls())
 #test
 
-
-### load in NAB data from 2009-2019 ##################################################################
+### load in NAB data and do linear interpolation #####################################################
+#before 3/15/21 this was a separate script here: ~/TX_epi/NAB_missing_data.R
+# I originally used random forest instead of linear imputation, but the results were only a little better
+# and it was much more difficult to explain, so I switched to linear imputation
 NAB_locations <- read_csv("C:/Users/dsk856/Desktop/misc_data/EPHT_Pollen Station Inventory_062019_dk200331.csv")
-NAB <- read_csv("C:/Users/dsk856/Desktop/misc_data/NAB2009_2019_pollen_191230.csv", guess_max = 92013)
-# NAB_modeled_orig <- read_csv("C:/Users/dsk856/Desktop/misc_data/NAB_pollen_modeled200618.csv", guess_max = 31912)
-NAB_modeled_rf <- read_csv("C:/Users/dsk856/Desktop/misc_data/NAB_pollen_modeled200810.csv", guess_max = 31912)
-NAB_modeled <- read_csv("C:/Users/dsk856/Desktop/misc_data/NAB_pollen_modeled_linear_interp_210311.csv", guess_max = 31912) %>% 
-  dplyr::select(NAB_station, date, #
-                Cupressaceae, trees, other_pollen, #raw
-                cup_log10, trees_log10, pol_other_log10, #log10 + 1 transform
-                cup_lm, trees_lm, pol_other_lm) #linear interpolation of log10 data 
+NAB <- read_csv("C:/Users/dsk856/Desktop/misc_data/NAB2009_2019_pollen_200508.csv", guess_max = 92013)
 
-# msa <- read.csv("C:/Users/dsk856/Desktop/misc_data/county_to_MSA_clean.csv", stringsAsFactors = FALSE)
-# msa$FIPS <- sprintf("%03s",msa$FIPS) %>% sub(" ", "0",.) %>% sub(" ", "0",.)
+#QA/QC
+NAB <- NAB %>% 
+  filter(file != "106- Waco (2)_resaved.xls") #Removing Waco B 
+  # There appear to be substantial issues with non-measured days being recorded as 0s and with Ulmus not being distinguished from
+  # unidentified pollen in 2009 and 2016.
+  # I'm also deeply skeptical of how clean the data are - there is so little variablility compared to all other stations
+  
+  # #Quality control for Waco A, Cupressaceae seems to have been mistakenly entered as Ambrosia for a season
+  # mutate( Cupressaceae = case_when(NAB_station == "Waco A" & Cupressaceae == 0 &
+  #                                    date > mdy("12/11/2009") & date < mdy("2/20/2010") ~ Ambrosia, TRUE ~ Cupressaceae),
+  #         Ambrosia = case_when(NAB_station == "Waco A"  &
+  #                                date > mdy("12/11/2009") & date < mdy("2/20/2010") ~ 0, TRUE ~ Ambrosia)) 
 
-NAB_tx <- left_join(NAB, NAB_locations) %>%
+NAB_locations_first_join <- NAB_locations %>% dplyr::select(NAB_station, file, State)
+
+NAB_tx_pol <- left_join(NAB, NAB_locations_first_join) %>%
   filter(State == "TX") %>%
-  mutate(date = ymd(Date),
-         doy = yday(date),
-         ja = case_when( doy < 60  ~ Cupressaceae,
-                         doy > 345 ~ Cupressaceae,
-                         TRUE ~ 0),
-         cup_other = case_when(ja == 0 ~ Cupressaceae,
-                               ja > 0 ~ 0)) %>%  #, FIPS = as.character(FIPS
+  mutate(date = ymd(Date)) %>%
   rowwise()%>%
-  mutate(trees = sum(Acer, Alnus, Betula, Carpinus.Ostrya, Corylus, Fraxinus, Juglans, Liquidambar, Other.Tree.Pollen,                    
-                     Populus, Pseudotsuga, Quercus, Salix, Arecaceae, Carya, Cyperaceae, Fagus, Ligustrum,
-                     Morus, Olea, Platanus, Tilia, Celtis, Prosopis, Myrica, Ulmus, Tsuga, na.rm = TRUE), #not including Pinaceae
-         pol_other = Total.Pollen.Count - ja - cup_other - trees,
-         tot_pol = Total.Pollen.Count)%>%  
-  dplyr::select(date, doy, file, #City, FIPS, county_name, MSA, Lat, Long, NABStation_ID, file, 
-                ja, cup_other, trees, pol_other, tot_pol,  #Total.Pollen.Count, Cupressaceae,grass = Gramineae...Poaceae,Ambrosia, Quercus, Ulmus, Acer, Platanus,    
-                NAB_station)
+  mutate(Fagales = sum(Alnus, Betula, Carpinus.Ostrya, Corylus, Quercus, Fagus, Myrica, na.rm = TRUE),
+         other_trees = sum(Acer, Fraxinus, Juglans, Liquidambar, Other.Tree.Pollen, Pinaceae, Populus, Pseudotsuga, Salix, 
+                           Carya, Ligustrum, Olea, Platanus, Tilia, Celtis, Tsuga, Prosopis, na.rm = TRUE),
+         trees = sum(Morus, Ulmus, Fagales, other_trees, na.rm = TRUE), 
+         grass = sum(Gramineae...Poaceae, Other.Grass.Pollen , na.rm = TRUE),
+         herbaceous = sum( Artemisia, Asteraceae..Excluding.Ambrosia.and.Artemisia., Chenopodiaceae.Amaranthaceae,
+                            Other.Weed.Pollen, Plantago, Rumex,  Arecaceae, Cyperaceae, Typha,
+                            Eupatorium, Urticaceae, na.rm = TRUE ),
+         pol_other = sum(grass, Ambrosia, Unidentified.Pollen, herbaceous, na.rm = TRUE),
+         
+         #log10 transform final selected categories
+         cup_log10 = log10(Cupressaceae + 1),
+         trees_log10 = log10(trees + 1),
+         pol_other_log10 = log10(pol_other + 1)
+         
+         #a quick check to make sure that I'm not losing any pollen columns in this section
+         #test_pol = Total.Pollen.Count - Cupressaceae - trees - pol_other #this check shows my math is fine, but there are ~10 rows
+         #...  where the Total.Pollen.Count column appears to have incorrect sums (based on manual inspection of original .xls files)
+         ) %>% 
+  ungroup() %>% 
+  #arrange(desc(test_pol)) #for manual check, described in lines just above
+  dplyr::select(NAB_station, date, #mo, doy, year, #City, FIPS, county_name, MSA, Lat, Long, NAB_station,
+                Cupressaceae, trees, pol_other,
+                cup_log10, trees_log10, pol_other_log10) 
+
+#expand to include missing dates
+date_station_grid <- expand_grid(seq(min(NAB$date),max(NAB$date), by = '1 day'), 
+                                 unique(NAB_tx_pol$NAB_station)) %>% 
+  `colnames<-`(c("date", "NAB_station")) %>%
+  filter(!is.na(NAB_station)) %>% 
+  ungroup()
+
+NAB_tx_pol_full <- left_join(date_station_grid, NAB_tx_pol) %>%
+  arrange(NAB_station, date)
+
+NAB_locations_second_join <- NAB_locations %>% dplyr::select(NAB_station, Lat, Long, FIPS, MSA, county_name, ZIP, City)
+NAB_tx_pol_full <- left_join(NAB_tx_pol_full, NAB_locations_second_join) %>% 
+  mutate(mo = month(date),
+         doy = yday(date),
+         year = year(date),
+        FIPS = sprintf("%03s",FIPS), #NAB_tx_pol$FIPS
+        FIPS = sub(" ", "0",FIPS),
+        FIPS = sub(" ", "0",FIPS))
 
 
-NAB_tx <- left_join(NAB_modeled, NAB_tx) %>% 
-  dplyr::select(-file) #names(NAB_tx)
+### simple linear interpolation 
+# using a random forest is slightly better but far more complicated and I don't think it's worth it because it is just so much more complicated to explain
+# the marginal benefit is probably an R2 improvement of ~0.02 
+# so, as of 10/2/20, I'm going to switch over to just a linear interpolation:
 
-NAB_tx <- left_join(NAB_tx, NAB_locations) %>%  #have to do a second join with location data due to some unfortunate formatting
-  dplyr::select(date, doy, file, City, FIPS, county_name, MSA, Lat, Long, NABStation_ID, 
-                ja, cup_other, trees, pol_other, tot_pol, ja_rfint_log_mean, cup_other_rfint_log_mean, trees_rfint_log_mean,  
-                pol_other_rfint_log_mean, 
-                NAB_station) %>%   #Total.Pollen.Count, Cupressaceae,grass = Gramineae...Poaceae,Ambrosia, Quercus, Ulmus, Acer, Platanus,    
-  mutate(FIPS = sprintf("%03s",FIPS), #NAB_tx$FIPS
-                         FIPS = sub(" ", "0",FIPS),
-                         FIPS = sub(" ", "0",FIPS),
-        doy = yday(date),
-        year = year(date),
-        mo = month(date)) %>% 
-  #Quality control for Waco B, which appears to have coded many NA values as zeros
-  mutate(ja = case_when(tot_pol == 0 & NAB_station == "Waco B" ~ NA_real_, TRUE ~ ja), 
-         cup_other = case_when(tot_pol == 0 & NAB_station == "Waco B" ~ NA_real_, TRUE ~ cup_other),
-         cup_all = case_when(tot_pol == 0 & NAB_station == "Waco B" ~ NA_real_, TRUE ~ ja + cup_other),
-         trees = case_when(tot_pol == 0 & NAB_station == "Waco B" ~ NA_real_, TRUE ~ trees),
-         pol_other = case_when(tot_pol == 0 & NAB_station == "Waco B" ~ NA_real_, TRUE ~ pol_other),
-         tot_pol = case_when(tot_pol == 0 & NAB_station == "Waco B" ~ NA_real_, TRUE ~ tot_pol)) %>% 
-  mutate(ja_m =  case_when(is.na(ja) ~ exp(ja_rfint_log_mean) -1 , !is.na(ja) ~ ja),
-         cup_all_m =  case_when(is.na(ja) ~ exp(cup_other_rfint_log_mean) - 1 + exp(ja_rfint_log_mean) -1 , !is.na(ja) ~ ja + cup_other),
-         trees_m = case_when(is.na(trees) ~ exp(trees_rfint_log_mean) -1, !is.na(trees) ~ trees),
-         pol_other_m = case_when(is.na(pol_other) ~ exp(pol_other_rfint_log_mean) - 1, !is.na(pol_other) ~ pol_other),
-         ja_lm = log10(ja_m + 1),
-         cup_all_lm = log10(cup_all_m + 1),
-         trees_lm = log10(trees_m + 1),
-         pol_other_lm = log10(pol_other_m + 1))
 
-#comparing modeled to observed pollen concentrations
-# filter(NAB_tx, date > ymd("2015-10-1") & date < ymd("2018-01-01")) %>% #summarise(n = n())
-# ggplot(aes( x = date, y = cup_all_m )) + geom_point(color = "red", size = 0.5) + facet_wrap(~NAB_station) +
-#   geom_point(aes(x = date, y = cup_all),  color = "gray") +  theme_bw() +  coord_cartesian(ylim = c(0, 15)) #scale_y_log10() +
-# 
-# filter(NAB_tx, date > ymd("2015-10-1") & date < ymd("2018-01-01")) %>% #summarise(n = n())
-#   ggplot(aes( x = date, y = trees_m )) + geom_point(color = "red", size = 0.5) + facet_wrap(~NAB_station) +
-#   geom_point(aes(x = date, y = trees), color = "gray") +  theme_bw() +  coord_cartesian(ylim = c(0, 15)) #scale_y_log10() +
+#linear interpolation of virus data
+NAB_tx <- NAB_tx_pol_full %>% 
+  group_by(NAB_station) %>% 
+  mutate(
+    mo = month(date),
+    doy = yday(date),
+    year = year(date),
+    year_f = paste0("y_", year(date)),
+    
+    cup_all_m = na_interpolation(Cupressaceae),
+    cup_all_lm = na_interpolation(cup_log10),
+    trees_m = na_interpolation(trees),
+    trees_lm = na_interpolation(trees_log10),
+    pol_other_m = na_interpolation(pol_other),
+    pol_other_lm = na_interpolation(pol_other_log10)
+  ) 
+
+#check on data
+NAB_tx %>% 
+  #filter(NAB_station == "College Station") %>% 
+  filter(date > mdy("10/1/2015") & date < mdy("1/1/2018")) %>% 
+  ggplot(aes(x = date, y = cup_all_lm))  + facet_wrap(~NAB_station) + theme_bw() + geom_point(color = "red") +
+  geom_point(aes(x = date, y = cup_log10), color = "black")
+
+NAB_tx %>% 
+  #filter(NAB_station == "College Station") %>% 
+  filter(date > mdy("10/1/2015") & date < mdy("1/1/2018")) %>% 
+  ggplot(aes(x = date, y = trees_lm))  + facet_wrap(~NAB_station) + theme_bw() + geom_point(color = "red") +
+  geom_point(aes(x = date, y = trees_log10), color = "black")
+
+NAB_tx %>% 
+  #filter(NAB_station == "College Station") %>% 
+  filter(date > mdy("10/1/2015") & date < mdy("1/1/2018")) %>% 
+  ggplot(aes(x = date, y = pol_other_lm))  + facet_wrap(~NAB_station) + theme_bw() + geom_point(color = "red") +
+  geom_point(aes(x = date, y = pol_other_log10), color = "black")
+
+
+### assess how good of a job the linear interpolation does ######################
+#select a portion of the data to withhold 
+NAB_tx_withheld <- NAB_tx %>%  #str(NAB_tx)
+  ungroup() %>%  #get rid of rowwise
+  filter(date > mdy("10/1/2015") & date < mdy("1/1/2018")) %>% 
+  sample_frac(0.1) %>% #withold 10% of data
+  dplyr::select(date, NAB_station) %>% 
+  mutate(withheld = 1)
+NAB_tx_mt <- left_join(NAB_tx, NAB_tx_withheld) %>%  #str(NAB_tx_mt)
+  filter(date > mdy("10/1/2015") & date < mdy("1/1/2018")) %>% 
+  mutate(#withheld2 = case_when(withheld == 1 ~ withheld, is.na(withheld) ~ 0),
+    cup_withheld = case_when(is.na(withheld) ~ cup_log10), #by not specifying a value, it defaults to NA
+    trees_withheld = case_when(is.na(withheld) ~ trees_log10),
+    pol_other_withheld = case_when(is.na(withheld) ~ pol_other_log10)
+  )
+
+#linear interpolation of time series that had extra data removed
+NAB_tx_mt <- NAB_tx_mt %>% 
+  group_by(NAB_station) %>% 
+  mutate(
+    cup_withheld_lm = na_interpolation(cup_withheld),
+    trees_withheld_lm = na_interpolation(trees_withheld),
+    pol_other_withheld_lm = na_interpolation(pol_other_withheld))
+
+NAB_tx_mtc <- filter(NAB_tx_mt, withheld == 1) 
+
+#compare withheld data with linear interp estimates
+cup_mtc_fit <- lm(NAB_tx_mtc$cup_log10 ~ NAB_tx_mtc$cup_withheld_lm )
+sqrt(mean(cup_mtc_fit$residuals^2)); summary(cup_mtc_fit) #RMSE and R2
+cup_panel <- ggplot(NAB_tx_mtc, aes(x= 10^(cup_withheld_lm) - 1, y = 10^(cup_log10) - 1)) + geom_point(alpha = .2) + theme_bw() + #geom_smooth(method = "lm") +
+  geom_abline(slope = 1, lty = 2) +xlab(interpolated~(pollen~grains~per~m^3)) + ylab(observed~(pollen~grains~per~m^3)) + 
+  scale_x_log10(limits = c(1, 10000)) + scale_y_log10(limits = c(1, 10000)) 
+
+trees_mtc_fit <- lm(NAB_tx_mtc$trees_log10 ~ NAB_tx_mtc$trees_withheld_lm)
+sqrt(mean(trees_mtc_fit$residuals^2)); summary(trees_mtc_fit) #RMSE and R2
+tree_panel <- ggplot(NAB_tx_mtc, aes(x= 10^(trees_withheld_lm) - 1, y = 10^(trees_log10) - 1)) + geom_point(alpha = .2) + theme_bw() + #geom_smooth(method = "lm") +
+  geom_abline(slope = 1, lty = 2) +xlab(interpolated~(pollen~grains~per~m^3)) + ylab(observed~(pollen~grains~per~m^3)) + 
+  scale_x_log10(limits = c(1, 10000)) + scale_y_log10(limits = c(1, 10000)) 
+
+pol_other_mtc_fit <- lm(NAB_tx_mtc$pol_other_log10 ~ NAB_tx_mtc$pol_other_withheld_lm)
+sqrt(mean(pol_other_mtc_fit$residuals^2)); summary(pol_other_mtc_fit) #RMSE and R2
+other_panel <- ggplot(NAB_tx_mtc, aes(x= 10^(pol_other_withheld_lm) - 1, y = 10^(pol_other_log10) - 1)) + geom_point(alpha = .2) + theme_bw() + #geom_smooth(method = "lm") +
+  geom_abline(slope = 1, lty = 2) +xlab(interpolated~(pollen~grains~per~m^3)) + ylab(observed~(pollen~grains~per~m^3)) + 
+  scale_x_log10(limits = c(1, 500)) + scale_y_log10(limits = c(1, 500)) 
+
+cowplot::plot_grid(cup_panel, tree_panel, other_panel, labels = c("A", "B", "C"))
+
+
 
 
 ### THCIC outpatient data on asthma-related ED visits #####################################################
@@ -182,7 +272,7 @@ distances <- st_distance(opa_raw_sf, NAB_tx_sf, by_element = FALSE) /1000 #calcu
 distances_df <- as.data.frame(distances) 
 distances_min <- apply(distances_df, 1, FUN = min) #minimum distance to a NAB station
 which_station_closest <- apply(distances_df, 1, function(x) which(x == min(x, na.rm = TRUE))) #which station is closest
-NAB_station_lookup <- data.frame(NAB_station = NAB_tx_sf$NAB_station, n_lookup = 1:9)
+NAB_station_lookup <- data.frame(NAB_station = NAB_tx_sf$NAB_station, n_lookup = 1:8)
 station_looked_up <- left_join(data.frame(n_lookup = which_station_closest), NAB_station_lookup)
 opa_raw_sf <- mutate(opa_raw_sf, NAB_min_dist = distances_min, NAB_station = station_looked_up$NAB_station)
 NAB_dist_opa_join <- opa_raw_sf 
@@ -714,11 +804,10 @@ library(ggplot2)
 #opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_child_25km_200918.csv", guess_max = 8260) #opa_day_child_200910.csv
 #opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_child_10km_200918.csv", guess_max = 8260) 
 #opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_child_50km_200918.csv", guess_max = 8260) 
-opa_day <- opa_day_agegroup_x
-
+opa_day <- opa_day_agegroup_x 
 opa_day %>% #group_by(NAB_station) %>% 
   summarize(total_cases = sum(n_cases), PBIR_mean = mean(pbir)) #%>% ungroup() %>%  summarize( total_n = sum (total_cases))
-ggplot(opa_day, aes( x = date, y = cup_all + 1))  + facet_wrap(~NAB_station) + theme_bw()+ scale_y_log10() + 
+ggplot(opa_day, aes( x = date, y = Cupressaceae + 1))  + facet_wrap(~NAB_station) + theme_bw()+ scale_y_log10() + 
   geom_point(color = "black") +
   geom_point(aes(x = date, y = cup_all_m + 1), color = "red", size = 0.5) 
 
@@ -746,7 +835,6 @@ data_for_model <- opa_day %>%
   ) %>%
   dplyr::select(NAB_station, date, n_cases, pbir, child_pop, log_child_pop, adult_pop, log_adult_pop, agegroup_x_pop, log_agegroup_x_pop,
                 week_day,
-                ja_lm, #ja_rfint_log_mean, ja_l,
                 #cup_other_lm, #cup_other_lms, 
                 cup_all_lm, cup_all_m,
                 trees_lm, trees_m,
