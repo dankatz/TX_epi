@@ -49,6 +49,8 @@ NAB_tx <- left_join(NAB, NAB_locations) %>%
                 Cupressaceae, Ambrosia, Morus, Ulmus, grass, Fagales, other_trees, other_pollen,
                 tot_pol = Total.Pollen.Count) 
 
+
+
 date_station_grid <- expand_grid(seq(min(NAB$date),max(NAB$date), by = '1 day'), 
                                  unique(NAB_tx$NAB_station)) %>% 
                     `colnames<-`(c("date", "NAB_station")) %>%
@@ -71,11 +73,19 @@ pd <- pd %>%
   mutate( Cupressaceae = case_when(NAB_station == "Waco A" & Cupressaceae == 0 &
                                      date > mdy("12/11/2009") & date < mdy("2/20/2010") ~ Ambrosia, TRUE ~ Cupressaceae),
            Ambrosia = case_when(NAB_station == "Waco A"  &
-                                     date > mdy("12/11/2009") & date < mdy("2/20/2010") ~ 0, TRUE ~ Ambrosia))
+                                     date > mdy("12/11/2009") & date < mdy("2/20/2010") ~ 0, TRUE ~ Ambrosia)) %>% 
+  rowwise()%>%
+  mutate(Cupressaceae = Cupressaceae,
+         trees = sum(Morus, Ulmus, Fagales, other_trees), 
+         pol_other = sum(grass, Ambrosia, other_pollen)) %>% 
+  mutate(cup_log10 = log10(Cupressaceae + 1),
+         trees_log10 = log10(trees + 1),
+         pol_other_log10 = log10(other_pollen + 1)) %>% 
+  ungroup()
 
 
-#Cupressaceae, Ambrosia, Morus, Ulmus, grass, Fagales, other_trees, other_pollen,
-ggplot(pd, aes(x = doy, y = other_pollen + 1)) + geom_point() + facet_grid(year~NAB_station) + theme_bw() + scale_y_log10()
+#Cupressaceae, trees, pol_other
+ggplot(pd, aes(x = doy, y = cup_log10)) + geom_point() + facet_grid(year~NAB_station) + theme_bw() 
 
 filter(pd, NAB_station == "Waco A") %>%
 ggplot(aes(x = doy, y = Ambrosia+ 1)) + geom_point() + facet_grid(NAB_station~year) + theme_bw() + scale_y_log10() +
@@ -88,33 +98,100 @@ ggplot(aes(x = doy, y = Ambrosia+ 1)) + geom_point() + facet_grid(NAB_station~ye
 library(imputeTS)
 
 #linear interpolation of virus data
-pd_m <- pd %>% mutate(
+pd_m <- pd %>% 
+  group_by(NAB_station) %>% 
+  mutate(
               mo = month(date),
              doy = yday(date),
              year = year(date),
              year_f = paste0("y_", year(date)),
   
-                        Cupressaceae_m = na_interpolation(Cupressaceae),
-                        Ambrosia_m = na_interpolation(Ambrosia),
-                        Morus_m = na_interpolation(Morus),
-                        Ulmus_m = na_interpolation(Ulmus),
-                        grass_m = na_interpolation(grass),
-                        Fagales_m = na_interpolation(Fagales),
-                        other_trees_m = na_interpolation(other_trees),
-                        other_pollen_m = na_interpolation(other_pollen)) 
+                        cup_lm = na_interpolation(cup_log10),
+                        trees_lm = na_interpolation(trees_log10),
+                        pol_other_lm = na_interpolation(pol_other_log10)
+                        #Ambrosia_m = na_interpolation(Ambrosia)
+                        # Morus_m = na_interpolation(Morus),
+                        # Ulmus_m = na_interpolation(Ulmus),
+                        # grass_m = na_interpolation(grass),
+                        # Fagales_m = na_interpolation(Fagales),
+                        # other_trees_m = na_interpolation(other_trees),
+                        # other_pollen_m = na_interpolation(other_pollen)
+             ) 
 
-#test <- 
+#check on data
   pd_m %>% 
   #filter(NAB_station == "College Station") %>% 
 filter(date > mdy("10/1/2015") & date < mdy("1/1/2018")) %>% 
-ggplot(aes(x = doy, y = other_pollen_m + 1))  + facet_grid(year~NAB_station) + theme_bw() + scale_y_log10() +
-  geom_point(color = "red") + 
-  geom_point(aes(x= doy, y = other_pollen + 1), color = "black")
+ggplot(aes(x = date, y = cup_lm))  + facet_wrap(~NAB_station) + theme_bw() + geom_point(color = "red") +
+    geom_point(aes(x = date, y = cup_log10), color = "black")
   
-write_csv(pd_m, "C:/Users/dsk856/Box/texas/NAB/NAB_pollen_modeled_linear_interp_201002.csv")
+  pd_m %>% 
+    #filter(NAB_station == "College Station") %>% 
+    filter(date > mdy("10/1/2015") & date < mdy("1/1/2018")) %>% 
+    ggplot(aes(x = date, y = trees_lm))  + facet_wrap(~NAB_station) + theme_bw() + geom_point(color = "red") +
+    geom_point(aes(x = date, y = trees_log10), color = "black")
+  
+  pd_m %>% 
+    #filter(NAB_station == "College Station") %>% 
+    filter(date > mdy("10/1/2015") & date < mdy("1/1/2018")) %>% 
+    ggplot(aes(x = date, y = pol_other_lm))  + facet_wrap(~NAB_station) + theme_bw() + geom_point(color = "red") +
+    geom_point(aes(x = date, y = pol_other_log10), color = "black")
+  
+  
+write_csv(pd_m, "C:/Users/dsk856/Box/texas/NAB/NAB_pollen_modeled_linear_interp_210311.csv")
 
+
+### assess how good of a job the linear interpolation does ######################
+#select a portion of the data to withhold 
+pd_withheld <- pd %>%  #str(pd)
+  ungroup() %>%  #get rid of rowwise
+  filter(date > mdy("10/1/2015") & date < mdy("1/1/2018")) %>% 
+  sample_frac(0.1) %>% #withold 10% of data
+  dplyr::select(date, NAB_station) %>% 
+  mutate(withheld = 1)
+pd_mt <- left_join(pd, pd_withheld) %>%  #str(pd_mt)
+  filter(date > mdy("10/1/2015") & date < mdy("1/1/2018")) %>% 
+  mutate(#withheld2 = case_when(withheld == 1 ~ withheld, is.na(withheld) ~ 0),
+         cup_withheld = case_when(is.na(withheld) ~ cup_log10), #by not specifying a value, it defaults to NA
+         trees_withheld = case_when(is.na(withheld) ~ trees_log10),
+         pol_other_withheld = case_when(is.na(withheld) ~ pol_other_log10)
+         )
+  
+#linear interpolation of time series that had extra data removed
+pd_mt <- pd_mt %>% 
+  group_by(NAB_station) %>% 
+  mutate(
+    cup_withheld_lm = na_interpolation(cup_withheld),
+    trees_withheld_lm = na_interpolation(trees_withheld),
+    pol_other_withheld_lm = na_interpolation(pol_other_withheld))
+
+pd_mtc <- filter(pd_mt, withheld == 1) 
+
+#compare withheld data with linear interp estimates
+cup_mtc_fit <- lm(pd_mtc$cup_log10 ~ pd_mtc$cup_withheld_lm )
+sqrt(mean(cup_mtc_fit$residuals^2)); summary(cup_mtc_fit) #RMSE and R2
+cup_panel <- ggplot(pd_mtc, aes(x= 10^(cup_withheld_lm) - 1, y = 10^(cup_log10) - 1)) + geom_point(alpha = .2) + theme_bw() + #geom_smooth(method = "lm") +
+  geom_abline(slope = 1, lty = 2) +xlab(interpolated~(pollen~grains~per~m^3)) + ylab(observed~(pollen~grains~per~m^3)) + 
+  scale_x_log10(limits = c(1, 10000)) + scale_y_log10(limits = c(1, 10000)) 
+
+trees_mtc_fit <- lm(pd_mtc$trees_log10 ~ pd_mtc$trees_withheld_lm)
+sqrt(mean(trees_mtc_fit$residuals^2)); summary(trees_mtc_fit) #RMSE and R2
+tree_panel <- ggplot(pd_mtc, aes(x= 10^(trees_withheld_lm) - 1, y = 10^(trees_log10) - 1)) + geom_point(alpha = .2) + theme_bw() + #geom_smooth(method = "lm") +
+  geom_abline(slope = 1, lty = 2) +xlab(interpolated~(pollen~grains~per~m^3)) + ylab(observed~(pollen~grains~per~m^3)) + 
+  scale_x_log10(limits = c(1, 10000)) + scale_y_log10(limits = c(1, 10000)) 
+
+pol_other_mtc_fit <- lm(pd_mtc$pol_other_log10 ~ pd_mtc$pol_other_withheld_lm)
+sqrt(mean(pol_other_mtc_fit$residuals^2)); summary(pol_other_mtc_fit) #RMSE and R2
+other_panel <- ggplot(pd_mtc, aes(x= 10^(pol_other_withheld_lm) - 1, y = 10^(pol_other_log10) - 1)) + geom_point(alpha = .2) + theme_bw() + #geom_smooth(method = "lm") +
+  geom_abline(slope = 1, lty = 2) +xlab(interpolated~(pollen~grains~per~m^3)) + ylab(observed~(pollen~grains~per~m^3)) + 
+  scale_x_log10(limits = c(1, 500)) + scale_y_log10(limits = c(1, 500)) 
+
+cowplot::plot_grid(cup_panel, tree_panel, other_panel, labels = c("A", "B", "C"))
          
 
+
+
+### older and more complicated approaches to estimating missing data ########################################
 ### download and extract met data from Daymet ###############################################################
 library(daymetr)
 library(sf)
