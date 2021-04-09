@@ -20,7 +20,15 @@ library(imputeTS)
 
 
 rm(list = ls())
-#test
+
+### options for different data subsets
+
+# distance cutoff from NAB station
+NAB_min_dist_threshold <- 25
+
+# define target age range here 
+age_low <- 5 # >=
+age_hi <- 17 # <=
 
 ### load in NAB data and do linear interpolation #####################################################
 #before 3/15/21 this was a separate script here: ~/TX_epi/NAB_missing_data.R
@@ -282,7 +290,7 @@ NAB_dist_opa_join$geometry <- NULL
 opa_raw <- left_join(opa_raw, NAB_dist_opa_join) 
 
 ### filter asthma ED visits where residence was within 25 km of an NAB station ###############################################
-NAB_min_dist_threshold <- 25
+#NAB_min_dist_threshold <- 25 moved to top of script
 opa <- opa_raw %>%
         filter(NAB_min_dist < NAB_min_dist_threshold) %>% #restrict cases to patients whose residence was within 25 km of a station
         #filter(opa_raw, PAT_COUNTY %in% NAB_counties)  %>% #Travis county number is 453
@@ -337,9 +345,9 @@ day_NAB_list <- mutate(day_NAB_list, n_cases = 0, doy = yday(date))
 # AllF <- v17$name[29:51]9
 # All_vars <- c(AllM, AllF)
 
-### define target age range here 
-age_low <- 5 # >=
-age_hi <- 17 # <=
+# ### define target age range here #moved to top of script
+# age_low <- 0 # >=
+# age_hi <- 4 # <=
 
 #Variables that I want: ages 5-17  #B01001_003
 c_vars <- c("B01001_004", "B01001_005", "B01001_006", #males from 5-17 years old
@@ -886,15 +894,15 @@ fqaic <- function(model) {
 max_lag <- 7
 cup_lag <- crossbasis(data_for_model$cup_all_lm, lag = max_lag, #summary(cup_lag)
                      argvar=list(fun = "poly", degree = 1), #shape of response curve
-                     arglag = list(fun = "poly", degree = 3)) #shape of lag
+                     arglag = list(fun = "poly", degree = 1)) #shape of lag
 
 trees_lag <- crossbasis(data_for_model$trees_lm, lag = max_lag, 
                       argvar=list(fun = "poly", degree = 1), #shape of response curve
-                      arglag = list(fun = "poly", degree = 3))
+                      arglag = list(fun = "poly", degree = 1))
 
 pol_other_lag <- crossbasis(data_for_model$pol_other_lm, lag = max_lag,
                       argvar=list(fun = "poly", degree = 1), #shape of response curve
-                      arglag = list(fun = "poly", degree = 3))
+                      arglag = list(fun = "poly", degree = 1))
 
 #viruses for use with attrdl function for AR
 rhino_lag <- crossbasis(data_for_model$v_tests_perc_pos_Rhinovirus_m, lag = 0,
@@ -910,7 +918,7 @@ model1 <- glm(n_cases ~  #nb.glm
                     NAB_station + 
                     offset(log(agegroup_x_pop)) +  #offset(log(child_pop)) + #offset(log(adult_pop))
                     cup_lag +  trees_lag  + pol_other_lag + 
-                #all_pol_lm #*rhino_lag +
+                    #all_pol_lm *flu_lag +
                     rhino_lag + 
                     corona_lag +
                     flu_lag + 
@@ -969,8 +977,8 @@ ggplot(aes(x = pol_conc, y = mean, ymin = lower, ymax = upper))+
   annotation_logticks(sides = "b")  
   #ggtitle(paste0("ages ", age_low, "-", age_hi, "  n_cases = ", sum(data_for_model$n_cases))) 
 
-# child_RR_x_cup_25km <- child_RR_x_cup_25km +
-#   geom_rug(data = data_for_model, aes(x = cup_all_m + 1), sides = "t", alpha = 0.1, inherit.aes = FALSE) 
+child_RR_x_cup_25km <- child_RR_x_cup_25km +
+  geom_rug(data = data_for_model, aes(x = cup_all_m + 1), sides = "t", alpha = 0.1, inherit.aes = FALSE)
 
 child_lag_RR_x_cup_25km <-
   as.data.frame(exp(pred1_cup$cumfit)) %>% mutate(pol_conc = pred1_cup$predvar) %>% 
@@ -1000,8 +1008,9 @@ child_RR_x_trees_25km <-
   xlab(expression(paste("trees (pollen grains / m"^"3",")")))+ ylab('RR')+theme_few() + scale_x_log10()+ 
   annotation_logticks(sides = "b")  
 
-# child_RR_x_trees_25km <-  child_RR_x_trees_25km + 
-#   geom_rug(data = data_for_model, aes(x = trees_m + 1), sides = "t", alpha = 0.1, inherit.aes = FALSE) 
+child_RR_x_trees_25km <-  child_RR_x_trees_25km +
+  geom_rug(data = data_for_model, aes(x = trees_m + 1), sides = "t", alpha = 0.1, inherit.aes = FALSE)
+
 # plot.crosspred(pred1_trees, "contour", cumul = TRUE,
 #      plot.title = title(xlab = expression(paste("log10(tree pollen grains m"^"3",")")),
 #                         ylab = "Lag", main = "Cumulative RR across lags for trees"), key.title = title("RR"))
@@ -1029,8 +1038,8 @@ child_RR_x_pol_other_25km <-
   xlab(expression(paste("other pollen (pollen grains / m"^"3",")")))+ ylab('RR')+theme_few() + scale_x_log10() + 
   annotation_logticks(sides = "b")  
   
-# child_RR_x_pol_other_25km <- child_RR_x_pol_other_25km +
-# geom_rug(data = data_for_model, aes(x = pol_other_m + 1), sides = "t", alpha = 0.1, inherit.aes = FALSE) 
+child_RR_x_pol_other_25km <- child_RR_x_pol_other_25km +
+geom_rug(data = data_for_model, aes(x = pol_other_m + 1), sides = "t", alpha = 0.1, inherit.aes = FALSE)
 
 
 child_lag_RR_x_pol_other_25km <-
@@ -1056,8 +1065,9 @@ child_pol_25km <-
                                         "F) other pollen by lag"),
                    rel_widths = c(0.8, 1, 0.8, 1),
                    label_size = 11, label_x = 0.14, label_y = 0.9, hjust = 0, vjust = 0)
-ggsave(file = "C:/Users/dsk856/Desktop/thcic_analysis/child_pol_25km_210329.jpg", plot = child_pol_25km,
-       height =25, width = 21, units = "cm", dpi = 300)
+#child_pol_25km
+ggsave(file = "C:/Users/dsk856/Desktop/thcic_analysis/veryyoungchild_pol_50km_210409.jpg", plot = child_pol_25km,
+       height = 25, width = 21, units = "cm", dpi = 300)
 
   
 ### visualize effects of viruses ###############################################################
@@ -1241,7 +1251,7 @@ observed_ncases_t <- data_for_model %>%
 ggplot(attr_full_df, aes(x = date2, y = (risk_cases / agegroup_x_pop) * 10000, fill = attr_risk_var)) + 
   facet_wrap(~NAB_station) + geom_area() + theme_bw() + scale_fill_viridis_d(name = "attributable risk") + 
   ylab("asthma-related ED visits (per 10,000 people per day)") + xlab("date") +
-  scale_x_date(labels = date_format("%b")) + coord_cartesian(ylim = c(-0.02, .6)) + #c(-0.01, .15) #c(-0.02, .6)
+  scale_x_date(labels = date_format("%b")) + coord_cartesian(ylim = c(-0.02, .3)) + #c(-0.01, .15) #c(-0.02, .6)
   geom_step(data = observed_ncases_t, aes( x = date2, y =(mean_cases / agegroup_x_pop) * 10000, 
                                            color = "observed cases")) + scale_color_discrete(name = "") 
   
@@ -1249,7 +1259,7 @@ ggplot(attr_full_df, aes(x = date2, y = (risk_cases / agegroup_x_pop) * 10000, f
 
 
 ### a figure of just one city for the entire time period  
-NAB_station_filter <- "Flower Mound"
+NAB_station_filter <- "San Antonio A"
 attr_full_ex_df <- bind_cols(data_for_model, attr_df) %>% 
   filter(NAB_station == NAB_station_filter) %>% 
   # mutate(attr_t_unexplained = predicted_n_cases_t - attr_t_cup - attr_t_trees - attr_t_rhino - attr_t_corona - attr_t_flu - attr_t_other_pol) %>% 
