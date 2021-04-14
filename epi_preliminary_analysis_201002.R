@@ -800,7 +800,7 @@ ggsave(file = "C:/Users/dsk856/Desktop/thcic_analysis/time_series_fig_201008.jpg
 
 
 
-#### Children 5-17: analysis with a distributed lags model using dlnm package #######################################
+#### analysis with a distributed lags model using dlnm package #######################################
 library(dlnm)
 library(splines)
 library(MASS)
@@ -893,7 +893,7 @@ fqaic <- function(model) {
 
 max_lag <- 7
 cup_lag <- crossbasis(data_for_model$cup_all_lm, lag = max_lag, #summary(cup_lag)
-                     argvar=list(fun = "poly", degree = 1), #shape of response curve
+                     argvar=list(fun = "poly", degree = 2), #shape of response curve
                      arglag = list(fun = "poly", degree = 1)) #shape of lag
 
 trees_lag <- crossbasis(data_for_model$trees_lm, lag = max_lag, 
@@ -917,11 +917,11 @@ flu_lag <- crossbasis(data_for_model$flu_d_perc_pos, lag = 0,
 model1 <- glm(n_cases ~  #nb.glm
                     NAB_station + 
                     offset(log(agegroup_x_pop)) +  #offset(log(child_pop)) + #offset(log(adult_pop))
-                    cup_lag +  trees_lag  + pol_other_lag + 
+                     cup_lag +  trees_lag  + pol_other_lag + 
                     #all_pol_lm *flu_lag +
-                    rhino_lag + 
+                    rhino_lag +
                     corona_lag +
-                    flu_lag + 
+                    flu_lag +
                     week_day,
                     # met_vpPa,
                     # met_prcpmmday_ls +
@@ -938,7 +938,10 @@ fqaic(model1)
 
 # INCLUDE THE 1-DAY LAGGED RESIDUAL IN THE MODEL
 resid_model1 <- c(rep(NA, max_lag), residuals(model1, type = "deviance"))
+#resid_model1 <- c(rep(NA, 0), residuals(model1, type = "deviance"))#for the model version when pollen isn't included
 model2 <- update(model1, .~. + tsModel::Lag(resid_model1, 1)) 
+
+
 
 # hist(model1$fitted.values, n = 100)
 # hist(model2$fitted.values, n = 200)
@@ -1184,7 +1187,7 @@ table2$yc_p_cases_mean[7] <- sum(as.numeric(table2$yc_p_cases_mean[1:6]), na.rm 
 table2_paste <- data.frame(col1 = paste0(table2$yc_n_cases_mean, " (", table2$yc_n_cases_2.5, " - ", table2$yc_n_cases_97.5, ")"),
                            col2 = paste0(table2$yc_p_cases_mean, " (", table2$yc_p_cases_2.5, " - ", table2$yc_p_cases_97.5, ")"))
 write.table(table2_paste, "clipboard", sep="\t", row.names=FALSE, col.names=FALSE, quote = FALSE)
-
+table2_paste
 # #back of the envelope calculations to see whether these AR estimates are in the right ballpark
 # #predicted RR for a 1 unit increase (i.e., 10x since there's a log10 transformation on pollen): ~1.17
 # sum((data_for_model$n_cases[22: nrow(data_for_model)])) * mean(data_for_model$trees_lm[22: nrow(data_for_model)]) * 0.17
@@ -1221,7 +1224,7 @@ plot(jitter(data_for_model$n_cases), predicted_n_cases_t)
 
 attr_df <- data.frame(attr_t_cup, attr_t_trees, attr_t_other_pol, attr_t_rhino, attr_t_corona, attr_t_flu) #attr_t_other_pol, , predicted_n_cases_t
 #attr_df[attr_df < 0] <- 0 #removing net protective effects of all variables
-data_for_model$n_cases
+#data_for_model$n_cases
 # attr_df_p <- attr_df/predicted_n_cases_t
 # summary(attr_df_p)
 attr_full_df <- bind_cols(data_for_model, attr_df) %>% 
@@ -1255,6 +1258,42 @@ ggplot(attr_full_df, aes(x = date2, y = (risk_cases / agegroup_x_pop) * 10000, f
   geom_step(data = observed_ncases_t, aes( x = date2, y =(mean_cases / agegroup_x_pop) * 10000, 
                                            color = "observed cases")) + scale_color_discrete(name = "") 
   
+## a table giving the percent of AR for each pollen type by each city across the study period
+bind_cols(data_for_model, attr_df) %>% 
+group_by(NAB_station) %>% 
+  mutate(att_t_cup_risk_cases = (attr_t_cup/agegroup_x_pop) * 10000,
+         att_t_tree_risk_cases = (attr_t_trees/agegroup_x_pop) * 10000,
+         att_t_other_pol_risk_cases = (attr_t_other_pol/agegroup_x_pop) * 10000) %>% 
+  summarize(attr_t_cup_mean = mean(att_t_cup_risk_cases, na.rm = TRUE), 
+            attr_t_trees_mean = mean(att_t_tree_risk_cases, na.rm = TRUE),
+            attr_t_other_pol_mean = mean(att_t_other_pol_risk_cases, na.rm = TRUE))
+
+## a table giving the percent of AR for each pollen type by each city across the main pollen season
+
+#the cumulative y axis in the risk over time figure
+average_cases_pred_jan <- bind_cols(data_for_model, attr_df) %>% 
+  # mutate(attr_t_unexplained = predicted_n_cases_t - attr_t_cup - attr_t_trees - attr_t_rhino - attr_t_corona - attr_t_flu - attr_t_other_pol) %>% 
+  dplyr::select(date, NAB_station, agegroup_x_pop, 
+                #attr_t_unexplained, 
+                attr_t_cup, attr_t_trees,  attr_t_rhino, attr_t_corona, attr_t_flu, attr_t_other_pol) %>%   #attr_t_other_pol,
+  pivot_longer(cols = contains("attr_t_"), names_to = "var", values_to = "risk_cases") %>% 
+  mutate(date_month = month(date)) %>% 
+  filter(date_month == 1) %>% 
+  group_by(NAB_station, date) %>% 
+  mutate(risk_cases_per_pop = (risk_cases/agegroup_x_pop)*10000) %>% 
+  summarize(total_risk_cases = sum(risk_cases_per_pop, na.rm = TRUE)) %>% 
+  group_by(NAB_station) %>% 
+  summarize(mean_total_risk_cases = mean(total_risk_cases))
+
+bind_cols(data_for_model, attr_df) %>% 
+  mutate(date_month = month(date)) %>% 
+  filter(date_month == 1) %>% 
+  group_by(NAB_station) %>% 
+  mutate(att_t_cup_risk_cases = (attr_t_cup/agegroup_x_pop) * 10000) %>% 
+  summarize(attr_t_cup_mean = mean(att_t_cup_risk_cases, na.rm = TRUE)) %>% 
+  left_join(., average_cases_pred_jan) %>% 
+mutate(prop_cases_cup = attr_t_cup_mean / mean_total_risk_cases) 
+
 
 
 
