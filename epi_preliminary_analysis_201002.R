@@ -890,53 +890,51 @@ fqaic <- function(model) {
   return(qaic)
 }
 
-
+#set up dlnm crossbasis object for use in glm
 max_lag <- 7
-cup_lag <- crossbasis(data_for_model$cup_all_lm, lag = max_lag, #summary(cup_lag)
+cup_lag <- crossbasis(data_for_model$cup_all_lm, lag = max_lag, #log10 transformed & imputed pollen concentration for Cupressaceae
                      argvar=list(fun = "poly", degree = 2), #shape of response curve
                      arglag = list(fun = "poly", degree = 1)) #shape of lag
 
 trees_lag <- crossbasis(data_for_model$trees_lm, lag = max_lag, 
                       argvar=list(fun = "poly", degree = 1), #shape of response curve
-                      arglag = list(fun = "poly", degree = 1))
+                      arglag = list(fun = "poly", degree = 1)) #shape of lag
 
 pol_other_lag <- crossbasis(data_for_model$pol_other_lm, lag = max_lag,
                       argvar=list(fun = "poly", degree = 1), #shape of response curve
-                      arglag = list(fun = "poly", degree = 1))
+                      arglag = list(fun = "poly", degree = 1)) #shape of lag
 
-#viruses for use with attrdl function for AR
-rhino_lag <- crossbasis(data_for_model$v_tests_perc_pos_Rhinovirus_m, lag = 0,
-                        argvar=list(fun = "poly", degree = 1), arglag = list(fun = "lin"))
-corona_lag <- crossbasis(data_for_model$v_tests_perc_pos_Corona_m, lag = 0,
+#viruses in dlnm format for use with attrdl function for AR
+rhino_lag <- crossbasis(data_for_model$v_tests_perc_pos_Rhinovirus_m, lag = 0, #percent of tests positive for rhinovirus
+                        argvar=list(fun = "lin"), arglag = list(fun = "lin")) #using a linear response
+corona_lag <- crossbasis(data_for_model$v_tests_perc_pos_Corona_m, lag = 0, #percent of tests positive for rhinovirus
                          argvar=list(fun = "lin"), arglag = list(fun = "lin"))
-flu_lag <- crossbasis(data_for_model$flu_d_perc_pos, lag = 0, 
+flu_lag <- crossbasis(data_for_model$flu_d_perc_pos, lag = 0, #percent of tests positive for influenza (separate dataset)
                          argvar=list(fun = "lin"), arglag = list(fun = "lin"))
 
 
-#glm.nb can be substituted in, but doesn't seem to change much
-model1 <- glm(n_cases ~  #nb.glm
-                    NAB_station + 
-                    offset(log(agegroup_x_pop)) +  #offset(log(child_pop)) + #offset(log(adult_pop))
-                     cup_lag +  trees_lag  + pol_other_lag + 
+#quasiposson glm with included variables
+model1 <- glm(n_cases ~  #number of cases at a station on an observed day
+                    NAB_station + #effect of station
+                    offset(log(agegroup_x_pop)) +  #offset for the population of a study area
+                    cup_lag +  trees_lag  + pol_other_lag + #dlnm crossbasis for each pollen type
+                    rhino_lag + corona_lag + flu_lag + #dlnm crossbasis for each virus type
+                    week_day, #day of week term
                     #all_pol_lm *flu_lag +
-                    rhino_lag +
-                    corona_lag +
-                    flu_lag +
-                    week_day,
                     # met_vpPa,
                     # met_prcpmmday_ls +
-                    # met_tavg_s +  #met_tmindegc_s + ###met_vpPa +  humidity matters and overwrites temperature and precip
+                    # met_tavg_s +  #met_tmindegc_s + #met_vpPa +  
                     # met_tmaxdegc_s +
                     # met_tmindegc_s +
                     # met_sradWm2_s + #
                     # met_prcp_flag +
-                    # ns(time, df = 12),
-            family = quasipoisson, 
-              data = data_for_model) #quasipoisson #data_for_model$agegroup_x_pop
+                    # ns(time, df = 12), #not including spline anymore
+              family = quasipoisson, #quasipoisson
+              data = data_for_model)  
 summary(model1)
 fqaic(model1)
 
-# INCLUDE THE 1-DAY LAGGED RESIDUAL IN THE MODEL
+# include the 1-day lagged residual in the model
 resid_model1 <- c(rep(NA, max_lag), residuals(model1, type = "deviance"))
 #resid_model1 <- c(rep(NA, 0), residuals(model1, type = "deviance"))#for the model version when pollen isn't included
 model2 <- update(model1, .~. + tsModel::Lag(resid_model1, 1)) 
