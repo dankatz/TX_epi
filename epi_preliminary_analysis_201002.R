@@ -27,8 +27,8 @@ rm(list = ls())
 NAB_min_dist_threshold <- 25
 
 # define target age range here 
-age_low <- 5 # >=
-age_hi <- 17 # <=
+age_low <- 18 # >=
+age_hi <- 99 # <=
 
 ### load in NAB data and do linear interpolation #####################################################
 #before 3/15/21 this was a separate script here: ~/TX_epi/NAB_missing_data.R
@@ -525,33 +525,55 @@ flus <-  left_join(flu_city, flu)
 nrevss_data <- left_join(vs2, flus)
 nrevss_data %>% 
   ggplot(aes(x = dates, y = flu_pos, color = NAB_station)) + geom_line() + theme_bw() + 
-  ylab("RSV tests (proportion positive)") + facet_wrap(~NAB_station)
+  facet_wrap(~NAB_station) #ylab("RSV tests (proportion positive)") + 
 
 nrevss_sum <- nrevss_data %>% group_by(NAB_station) %>% 
+            #total number of positive tests at each site
   summarize(NAB_station_flu_all_pos = sum(flu_pos, na.rm = TRUE),
             NAB_station_rsv_all_pos = sum(RSV_pos, na.rm = TRUE),
             NAB_station_CoV_all_pos = sum(CoV_pos, na.rm = TRUE),
-            NAB_station_rhino_all_pos = sum(Rhino_pos, na.rm = TRUE))
+            NAB_station_rhino_all_pos = sum(Rhino_pos, na.rm = TRUE),
+            
+            #mean proportionf of tests that were positive for each site
+            NAB_station_flu_prop_pos = mean(flu_pos_prop, na.rm = TRUE),
+            NAB_station_rsv_prop_pos = mean(RSV_pos_prop, na.rm = TRUE),
+            NAB_station_CoV_prop_pos = mean(CoV_pos_prop, na.rm = TRUE),
+            NAB_station_rhino_prop_pos = mean(Rhino_pos_prop, na.rm = TRUE)
+            )
 
 nrevss_data2 <- left_join(nrevss_data, nrevss_sum) %>% #str(nrevss_data2) 
             mutate(v_pos_rel_Rhinovirus = Rhino_pos/NAB_station_rhino_all_pos,
                    v_pos_rel_RSV = RSV_pos/NAB_station_rsv_all_pos,
                    v_pos_rel_corona = CoV_pos/NAB_station_CoV_all_pos,
-                   v_pos_rel_flu = flu_pos/NAB_station_flu_all_pos)
+                   v_pos_rel_flu = flu_pos/NAB_station_flu_all_pos,
+                   
+                   v_pos_rel_adj_Rhinovirus = v_pos_rel_Rhinovirus * NAB_station_rhino_prop_pos,
+                   v_pos_rel_adj_RSV = v_pos_rel_RSV * NAB_station_rsv_prop_pos,
+                   v_pos_rel_adj_corona = v_pos_rel_corona * NAB_station_CoV_prop_pos,
+                   v_pos_rel_adj_flu = v_pos_rel_flu * NAB_station_flu_prop_pos
+                   )
 
-#what about Austin flu in 2016 summer/fall 
+#Austin flu in 2016 summer/fall was not reported; it was close to 0, so setting it to 0 manually
 nrevss_data3 <- nrevss_data2 %>% 
   mutate(flu_tests = case_when(NAB_station == "Georgetown" & dates < ymd("2016-09-25") & dates > ymd("2016-06-03") ~ 0,
-                             TRUE ~ flu_tests),
+                            TRUE ~ flu_tests),
          flu_pos = case_when(NAB_station == "Georgetown" & dates < ymd("2016-09-25") & dates > ymd("2016-06-03") ~ 0,
-                             TRUE ~ flu_pos_prop),
+                            flu_tests == 0 ~ 0,
+                            TRUE ~ flu_pos_prop),
          flu_pos_prop = case_when(NAB_station == "Georgetown" & dates > ymd("2016-06-03") & dates < ymd("2016-09-25") ~ 0,
+                            flu_tests == 0 ~ 0,
                             TRUE ~ flu_pos_prop),
          v_pos_rel_flu = case_when(NAB_station == "Georgetown" & dates > ymd("2016-06-03") & dates < ymd("2016-09-25") ~ 0,
-                            TRUE ~ v_pos_rel_flu)) %>% 
+                            TRUE ~ v_pos_rel_flu),
+         v_pos_rel_adj_flu = case_when(flu_tests == 0 ~ 0,
+                            TRUE ~ v_pos_rel_adj_flu)) %>% 
+  mutate(CoV_pos_prop = case_when(CoV_tests == 0 ~ 0,
+                            TRUE ~ CoV_pos_prop),
+         Rhino_pos_prop = case_when(Rhino_tests == 0 ~ 0,
+                            TRUE ~ Rhino_pos_prop)) %>% 
   rename(date = dates)
-
-# str(weather_at_stations)
+#names(test)
+#test <- nrevss_data3 %>% filter(!complete.cases(.))
 # str(nrevss_data3)
 
 date_station_grid <- expand_grid(seq(ymd("2015-08-01"),ymd("2018-02-01"), by = '1 day'), 
@@ -563,39 +585,83 @@ date_station_grid <- expand_grid(seq(ymd("2015-08-01"),ymd("2018-02-01"), by = '
 nrevss_data4 <- left_join(date_station_grid, nrevss_data3)%>% 
   dplyr::select(NAB_station, date, 
                 v_pos_prop_RSV = RSV_pos_prop,
-                v_pos_rel_RSV,
+                v_pos_rel_RSV, v_pos_rel_adj_RSV,
                 v_pos_prop_flu = flu_pos_prop,
-                v_pos_rel_flu,
+                v_pos_rel_flu, v_pos_rel_adj_flu,
                 v_pos_prop_Rhinovirus = Rhino_pos_prop,
-                v_pos_rel_Rhinovirus,
+                v_pos_rel_Rhinovirus, v_pos_rel_adj_Rhinovirus,
                 v_pos_prop_corona = CoV_pos_prop,
-                v_pos_rel_corona) %>% 
+                v_pos_rel_corona, v_pos_rel_adj_corona) %>% 
 arrange(NAB_station, date) %>% 
 group_by(NAB_station) %>% #switch to daily values from weekly values
   mutate( v_pos_prop_RSV = round(rollapply(v_pos_prop_RSV, 7, align = "left", FUN=function(x) mean(x, na.rm=TRUE), fill=NA), 4),
           v_pos_rel_RSV = round(rollapply(v_pos_rel_RSV, 7, align = "left", FUN=function(x) mean(x, na.rm=TRUE), fill=NA), 4),
+          v_pos_rel_adj_RSV = round(rollapply(v_pos_rel_adj_RSV, 7, align = "left", FUN=function(x) mean(x, na.rm=TRUE), fill=NA), 4),
           v_pos_prop_flu = round(rollapply(v_pos_prop_flu, 7, align = "left", FUN=function(x) mean(x, na.rm=TRUE), fill=NA), 4),
           v_pos_rel_flu = round(rollapply(v_pos_rel_flu, 7, align = "left", FUN=function(x) mean(x, na.rm=TRUE), fill=NA), 4),
-          v_pos_prop_Rhinovirus = round(rollapply(v_pos_prop_Rhinovirus, 7, align = "left", FUN=function(x) mean(x, na.rm=TRUE), fill=NA), 4),
-          v_pos_rel_Rhinovirus = round(rollapply(v_pos_rel_Rhinovirus, 7, align = "left", FUN=function(x) mean(x, na.rm=TRUE), fill=NA), 4),
-          v_pos_prop_corona = round(rollapply(v_pos_prop_corona, 7, align = "left", FUN=function(x) mean(x, na.rm=TRUE), fill=NA), 4),
-          v_pos_rel_corona = round(rollapply(v_pos_rel_corona, 7, align = "left", FUN=function(x) mean(x, na.rm=TRUE), fill=NA), 4)) %>% 
+          v_pos_rel_adj_flu = round(rollapply(v_pos_rel_adj_flu, 7, align = "left", FUN=function(x) mean(x, na.rm=TRUE), fill=NA), 4),
+          v_pos_prop_Rhinovirus = round(rollapply(v_pos_prop_Rhinovirus, 7, align = "left", FUN=function(x) mean(x, na.rm=TRUE), fill=NA), 5),
+          v_pos_rel_Rhinovirus = round(rollapply(v_pos_rel_Rhinovirus, 7, align = "left", FUN=function(x) mean(x, na.rm=TRUE), fill=NA), 5),
+          v_pos_rel_adj_Rhinovirus = round(rollapply(v_pos_rel_adj_Rhinovirus, 7, align = "left", FUN=function(x) mean(x, na.rm=TRUE), fill=NA), 5),
+          v_pos_prop_corona = round(rollapply(v_pos_prop_corona, 7, align = "left", FUN=function(x) mean(x, na.rm=TRUE), fill=NA), 5),
+          v_pos_rel_corona = round(rollapply(v_pos_rel_corona, 7, align = "left", FUN=function(x) mean(x, na.rm=TRUE), fill=NA), 5),
+          v_pos_rel_adj_corona = round(rollapply(v_pos_rel_adj_corona, 7, align = "left", FUN=function(x) mean(x, na.rm=TRUE), fill=NA), 5)) %>% 
   
     mutate(v_pos_prop_RSV_m = na_interpolation(v_pos_prop_RSV), #linear interpolation to fill in missing data
-         v_pos_rel_RSV_m = na_interpolation(v_pos_rel_RSV),
-         v_pos_prop_flu_m = na_interpolation(v_pos_prop_flu),
-         v_pos_rel_flu_m = na_interpolation(v_pos_rel_flu),
-         v_pos_prop_Rhinovirus_m = na_interpolation(v_pos_prop_Rhinovirus),
-         v_pos_rel_Rhinovirus_m = na_interpolation(v_pos_rel_Rhinovirus),
-         v_pos_prop_corona_m = na_interpolation(v_pos_prop_corona),
-         v_pos_rel_corona_m = na_interpolation(v_pos_rel_corona)
-         ) %>% 
+           v_pos_rel_RSV_m = na_interpolation(v_pos_rel_RSV),
+           v_pos_rel_adj_RSV_m = na_interpolation(v_pos_rel_adj_RSV),
+           v_pos_prop_flu_m = na_interpolation(v_pos_prop_flu),
+           v_pos_rel_flu_m = na_interpolation(v_pos_rel_flu),
+           v_pos_rel_adj_flu_m = na_interpolation(v_pos_rel_adj_flu),
+           v_pos_prop_Rhinovirus_m = na_interpolation(v_pos_prop_Rhinovirus),
+           v_pos_rel_Rhinovirus_m = na_interpolation(v_pos_rel_Rhinovirus),
+           v_pos_rel_adj_Rhinovirus_m = na_interpolation(v_pos_rel_adj_Rhinovirus),
+           v_pos_prop_corona_m = na_interpolation(v_pos_prop_corona),
+           v_pos_rel_corona_m = na_interpolation(v_pos_rel_corona),
+           v_pos_rel_adj_corona_m = na_interpolation(v_pos_rel_adj_corona)) %>% 
+           
+    #doing some moving averages
+    
+    mutate(v_pos_rel_adj_Rhinovirus_m14 = rollmean(v_pos_rel_adj_Rhinovirus_m, 15, na.pad=TRUE, align = "center"),
+           v_pos_rel_adj_RSV_m14 = rollmean(v_pos_rel_adj_RSV_m, 15, na.pad=TRUE, align = "center"),
+           v_pos_rel_adj_corona_m14 = rollmean(v_pos_rel_adj_corona_m, 15, na.pad=TRUE, align = "center"),
+           v_pos_rel_adj_flu_m14 = rollmean(v_pos_rel_adj_flu_m, 15, na.pad=TRUE, align = "center"),
+           
+           v_pos_rel_adj_Rhinovirus_m14r = rollmean(v_pos_rel_adj_Rhinovirus_m, 15, na.pad=TRUE, align = "right"),
+           v_pos_rel_adj_RSV_m14r = rollmean(v_pos_rel_adj_RSV_m, 15, na.pad=TRUE, align = "right"),
+           v_pos_rel_adj_corona_m14r = rollmean(v_pos_rel_adj_corona_m, 15, na.pad=TRUE, align = "right"),
+           v_pos_rel_adj_flu_m14r = rollmean(v_pos_rel_adj_flu_m, 15, na.pad=TRUE, align = "right"),
+           
+           v_pos_rel_adj_Rhinovirus_m14l = rollmean(v_pos_rel_adj_Rhinovirus_m, 15, na.pad=TRUE, align = "left"),
+           v_pos_rel_adj_RSV_m14l = rollmean(v_pos_rel_adj_RSV_m, 15, na.pad=TRUE, align = "left"),
+           v_pos_rel_adj_corona_m14l = rollmean(v_pos_rel_adj_corona_m, 15, na.pad=TRUE, align = "left"),
+           v_pos_rel_adj_flu_m14l = rollmean(v_pos_rel_adj_flu_m, 15, na.pad=TRUE, align = "left"),
+           
+           v_pos_rel_adj_Rhinovirus_m21 = rollmean(v_pos_rel_adj_Rhinovirus_m, 22, na.pad=TRUE, align = "center"),
+           v_pos_rel_adj_RSV_m21 = rollmean(v_pos_rel_adj_RSV_m, 22, na.pad=TRUE, align = "center"),
+           v_pos_rel_adj_corona_m21 = rollmean(v_pos_rel_adj_corona_m, 22, na.pad=TRUE, align = "center"),
+           v_pos_rel_adj_flu_m21 = rollmean(v_pos_rel_adj_flu_m, 22, na.pad=TRUE, align = "center"),
+           
+           v_pos_rel_adj_Rhinovirus_m28 = rollmean(v_pos_rel_adj_Rhinovirus_m, 29, na.pad=TRUE, align = "center"),
+           v_pos_rel_adj_RSV_m28 = rollmean(v_pos_rel_adj_RSV_m, 29, na.pad=TRUE, align = "center"),
+           v_pos_rel_adj_corona_m28 = rollmean(v_pos_rel_adj_corona_m, 29, na.pad=TRUE, align = "center"),
+           v_pos_rel_adj_flu_m28 = rollmean(v_pos_rel_adj_flu_m, 29, na.pad=TRUE, align = "center"),
+           )%>% 
   dplyr::select(NAB_station, date, contains("_m"))
 
-# nrevss_data4 %>%
-#   ggplot(aes(x = date, y =  v_pos_rel_corona_m, color = NAB_station)) + geom_line() + theme_bw()
-#   #ylab("RSV tests (proportion positive)") #+ facet_wrap(~NAB_station)
+nrevss_data4 %>%
+  ggplot(aes(x = date, y =  v_pos_rel_adj_corona_m, color = NAB_station)) + geom_line() + theme_bw()
+  #ylab("RSV tests (proportion positive)") #+ facet_wrap(~NAB_station)
 
+nrevss_data4 %>% group_by(NAB_station, date) %>% 
+  dplyr::select(contains("v_")) %>% 
+  filter(NAB_station == "San Antonio A" | NAB_station == "Flower Mound") %>% 
+  ungroup() %>% 
+  pivot_longer(cols = c(v_pos_prop_RSV_m, v_pos_rel_RSV_m, v_pos_rel_adj_RSV_m,
+                        v_pos_prop_flu_m, v_pos_rel_flu_m, v_pos_rel_adj_flu_m, 
+                        v_pos_prop_Rhinovirus_m, v_pos_rel_Rhinovirus_m, v_pos_rel_adj_Rhinovirus_m, 
+                        v_pos_prop_corona_m, v_pos_rel_corona_m, v_pos_rel_adj_corona_m)) %>% 
+  ggplot(aes( x = date, y = value, color = NAB_station)) + geom_step() + facet_wrap(~name, scales = "free_y")  + theme_bw()
 
 
 ### load in flu data ###############################################################################
@@ -957,6 +1023,20 @@ library(readr)
 library(lubridate)
 library(ggplot2)
 
+#function for model selection with QAIC:
+#NOTE: computing QAIC is kind of a pain, see discussions here:
+#https://www.r-bloggers.com/2017/05/a-note-on-aic-scores-for-quasi-families-in-rstats/
+#https://cran.r-project.org/web/packages/bbmle/vignettes/quasi.pdf
+#http://fisher.utstat.toronto.edu/reid/sta2201s/QUASI-POISSON.pdf
+#Thankfully, Gasparrini includes a little snippet of code to do so for DLNM models:
+#https://github.com/gasparrini/2013_gasparrini_BMCmrm_Rcodedata/blob/master/01.prep.R
+# FUNCTION TO COMPUTE THE Q-AIC IN QUASI-POISSON MODELS:
+fqaic <- function(model) {
+  loglik <- sum(dpois(model$y,model$fitted.values,log=TRUE))
+  phi <- summary(model)$dispersion
+  qaic <- -2*loglik + 2*summary(model)$df[3]*phi
+  return(qaic)
+}
 
 #opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_child_25km_200918.csv", guess_max = 8260) #opa_day_child_200910.csv
 #opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_child_10km_200918.csv", guess_max = 8260) 
@@ -990,7 +1070,8 @@ data_for_model <- opa_day %>%
     met_tavg_s = scale(met_tmaxdegc + met_tmindegc),
     met_vpPa_s = scale(met_vpPa)
   ) %>%
-  dplyr::select(NAB_station, date, n_cases, pbir, child_pop, log_child_pop, adult_pop, log_adult_pop, agegroup_x_pop, log_agegroup_x_pop,
+  dplyr::select(NAB_station, date, n_cases, pbir, 
+                child_pop, log_child_pop, adult_pop, log_adult_pop, agegroup_x_pop, log_agegroup_x_pop,
                 week_day,
                 #cup_other_lm, #cup_other_lms, 
                 cup_all_lm, cup_all_m,
@@ -1005,16 +1086,27 @@ data_for_model <- opa_day %>%
                 # v_tests_adj_pos_Rhinovirus_m,
                 # v_tests_adj_pos_RSV_m,
                 # v_tests_adj_pos_Corona_m,
-                v_pos_prop_RSV_m, v_pos_rel_RSV_m, #names(nrevss_data4)
-                v_pos_prop_flu_m, v_pos_rel_flu_m, 
-                v_pos_prop_Rhinovirus_m, v_pos_rel_Rhinovirus_m,
-                v_pos_prop_corona_m, v_pos_rel_corona_m,
+                v_pos_prop_Rhinovirus_m, v_pos_rel_Rhinovirus_m, v_pos_rel_adj_Rhinovirus_m, v_pos_rel_adj_Rhinovirus_m14,  
+                v_pos_rel_adj_Rhinovirus_m14l, v_pos_rel_adj_Rhinovirus_m14r, v_pos_rel_adj_Rhinovirus_m21, 
+                v_pos_rel_adj_Rhinovirus_m28, 
+                
+                v_pos_prop_RSV_m, v_pos_rel_RSV_m, v_pos_rel_adj_RSV_m, v_pos_rel_adj_RSV_m14, 
+                v_pos_rel_adj_RSV_m14l, v_pos_rel_adj_RSV_m14r, v_pos_rel_adj_RSV_m21,v_pos_rel_adj_RSV_m28,#names(nrevss_data4)
+                
+                v_pos_prop_corona_m, v_pos_rel_corona_m, v_pos_rel_adj_corona_m, v_pos_rel_adj_corona_m14, 
+                v_pos_rel_adj_corona_m14l, v_pos_rel_adj_corona_m14r, v_pos_rel_adj_corona_m21,v_pos_rel_adj_corona_m28,
+                
+                v_pos_prop_flu_m, v_pos_rel_flu_m, v_pos_rel_adj_flu_m,v_pos_rel_adj_flu_m14, v_pos_rel_adj_flu_m14l,
+                v_pos_rel_adj_flu_m14r, v_pos_rel_adj_flu_m21,v_pos_rel_adj_flu_m28,
+                
                  met_prcpmmday, met_sradWm2, met_tmaxdegc, met_tmindegc, met_vpPa, #hist(data_for_model$met_prcpmmday_ls)
                  met_prcpmmday_l, met_prcpmmday_ls, met_sradWm2_s, met_tmaxdegc_s, met_tmindegc_s, met_vpPa_s, met_tavg_s, met_prcp_flag
   ) %>%
   arrange(NAB_station, date) %>%
   ungroup() %>%  #to avoid an error with filtering the complete cases on the next line: https://stackoverflow.com/questions/59603972/result-must-have-length-error-with-complete-cases 
   filter(complete.cases(.)) %>% 
+  #filter(NAB_station != "San Antonio B") %>% 
+ # filter(date < mdy("11-01-2017")) %>% cutting off the bad flu season makes the negative effect of flu NS
   # filter(NAB_station == "San Antonio A" | NAB_station == "San Antonio B" | NAB_station == "Georgetown" |
   #          NAB_station == "Waco A" | NAB_station == "Waco B" ) %>% 
   # filter(NAB_station == "Houston" | NAB_station == "Dallas" | NAB_station == "Flower Mound" |
@@ -1022,7 +1114,7 @@ data_for_model <- opa_day %>%
   #filter(   NAB_station != "San Antonio A" & NAB_station != "San Antonio B" ) %>% # NAB_station != "Waco A",   # NAB_station != "College Station") %>% 
   group_by(NAB_station) %>% 
   mutate(time = row_number(),
-         all_pol_lm = log10(cup_all_m + trees_m + pol_other_m + 1))
+         all_pol_lm = log10(cup_all_m + trees_m + pol_other_m + 1)) 
 
 
 # names(data_for_model) 
@@ -1031,31 +1123,22 @@ data_for_model <- opa_day %>%
 data_for_model %>% group_by(NAB_station, date) %>% 
   dplyr::select(contains("v_")) %>% 
   ungroup() %>% 
-  pivot_longer(cols = c(v_pos_prop_RSV_m, v_pos_rel_RSV_m, v_pos_prop_flu_m, v_pos_rel_flu_m, v_pos_prop_Rhinovirus_m, 
-                        v_pos_rel_Rhinovirus_m, v_pos_prop_corona_m, v_pos_rel_corona_m)) %>% 
+  pivot_longer(cols = c(v_pos_prop_Rhinovirus_m, v_pos_rel_Rhinovirus_m, v_pos_rel_adj_Rhinovirus_m21, 
+                        v_pos_prop_RSV_m, v_pos_rel_RSV_m, v_pos_rel_adj_RSV_m21,
+                        v_pos_prop_corona_m, v_pos_rel_corona_m, v_pos_rel_adj_corona_m21,
+                        v_pos_prop_flu_m, v_pos_rel_flu_m, v_pos_rel_adj_flu_m21
+                        )) %>% 
  ggplot(aes( x = date, y = value, color = NAB_station)) + geom_step() + facet_wrap(~name, scales = "free_y")  + theme_bw()
 
-?facet_wrap
-#function for model selection with QAIC:
-#NOTE: computing QAIC is kind of a pain, see discussions here:
-#https://www.r-bloggers.com/2017/05/a-note-on-aic-scores-for-quasi-families-in-rstats/
-#https://cran.r-project.org/web/packages/bbmle/vignettes/quasi.pdf
-#http://fisher.utstat.toronto.edu/reid/sta2201s/QUASI-POISSON.pdf
-#Thankfully, Gasparrini includes a little snippet of code to do so for DLNM models:
-#https://github.com/gasparrini/2013_gasparrini_BMCmrm_Rcodedata/blob/master/01.prep.R
-# FUNCTION TO COMPUTE THE Q-AIC IN QUASI-POISSON MODELS:
-fqaic <- function(model) {
-  loglik <- sum(dpois(model$y,model$fitted.values,log=TRUE))
-  phi <- summary(model)$dispersion
-  qaic <- -2*loglik + 2*summary(model)$df[3]*phi
-  return(qaic)
-}
 
-#set up dlnm crossbasis object for use in glm
+
+## set up dlnm crossbasis object for use in glm
 max_lag <- 7
 cup_lag <- crossbasis(data_for_model$cup_all_lm, lag = max_lag, #log10 transformed & imputed pollen concentration for Cupressaceae
                      argvar=list(fun = "ns", knots = 3), #shape of response curve
                      arglag = list(fun = "ns", knots = 3)) #shape of lag
+                    # argvar=list(fun = "poly", degree = 3), #shape of response curve
+                    # arglag = list(fun = "poly", degree = 3)) #shape of lag
 
 trees_lag <- crossbasis(data_for_model$trees_lm, lag = max_lag, 
                         argvar=list(fun = "ns", knots = 3), #shape of response curve
@@ -1071,7 +1154,7 @@ pol_other_lag <- crossbasis(data_for_model$pol_other_lm, lag = max_lag,
                       # arglag = list(fun = "poly", degree = 3)) #shape of lag
 
 #viruses in dlnm format for use with attrdl function for AR
-rhino_lag <- crossbasis(data_for_model$v_pos_rel_Rhinovirus_m, lag = 0, #percent of tests positive for rhinovirus
+rhino_lag <- crossbasis(data_for_model$v_pos_rel_adj_Rhinovirus_m21, lag = 0, #percent of tests positive for rhinovirus
                         # argvar=list(fun = "poly", degree = 3), #shape of response curve
                         # arglag = list(fun = "poly", degree = 3)) #shape of lag
                         argvar=list(fun = "lin"), arglag = list(fun = "lin")) #using a linear response
@@ -1081,16 +1164,16 @@ rhino_lag <- crossbasis(data_for_model$v_pos_rel_Rhinovirus_m, lag = 0, #percent
 #                                    arglag = list(fun = "poly", degree = 3)) #shape of lag
 #                     #               argvar=list(fun = "lin"), arglag = list(fun = "lin")) #using a linear response
 
-corona_lag <- crossbasis(data_for_model$v_pos_rel_corona_m, lag = 0, #percent of tests positive for rhinovirus
+corona_lag <- crossbasis(data_for_model$v_pos_rel_adj_corona_m21, lag = 0, #percent of tests positive for rhinovirus
                          # argvar=list(fun = "poly", degree = 3), #shape of response curve
                          # arglag = list(fun = "poly", degree = 3)) #shape of lag
                          argvar=list(fun = "lin"), arglag = list(fun = "lin"))
-rsv_lag <- crossbasis(data_for_model$v_pos_rel_RSV_m, lag = 0, #percent of tests positive for rhinovirus
+rsv_lag <- crossbasis(data_for_model$v_pos_rel_adj_RSV_m21, lag = 0, #percent of tests positive for rhinovirus
                          # argvar=list(fun = "poly", degree = 3), #shape of response curve
                          # arglag = list(fun = "poly", degree = 3)) #shape of lag
                         argvar=list(fun = "lin"), arglag = list(fun = "lin"))
 
-flu_lag <- crossbasis(data_for_model$v_pos_rel_flu_m, lag = 0, #percent of tests positive for influenza (separate dataset)
+flu_lag <- crossbasis(data_for_model$v_pos_rel_adj_flu_m21, lag = 0, #percent of tests positive for influenza (separate dataset)
                       # argvar=list(fun = "poly", degree = 3), #shape of response curve
                       # arglag = list(fun = "poly", degree = 3)) #shape of lag
                       argvar=list(fun = "lin"), arglag = list(fun = "lin"))
@@ -1125,8 +1208,8 @@ summary(model1)
 
 # include the 1-day lagged residual in the model
 resid_model1 <- c(rep(NA, max_lag), residuals(model1, type = "deviance"))
-#resid_model1 <- c(rep(NA, 14), residuals(model1, type = "deviance"))#for the model version when pollen isn't included
-model2 <- update(model1, .~. + tsModel::Lag(resid_model1, 1)) 
+#resid_model1 <- c(rep(NA, 0), residuals(model1, type = "deviance"))#for the model version when pollen isn't included
+model2 <- update(model1, .~. + tsModel::Lag(resid_model1, 1))  #length(resid_model1) #length(residuals(model1, type = "deviance"))
 
 # hist(model1$fitted.values, n = 100)
 # hist(model2$fitted.values, n = 200)
@@ -1148,44 +1231,48 @@ model2 <- update(model1, .~. + tsModel::Lag(resid_model1, 1))
 # summary(model1)
 # summary(model2)
 ### investigate residuals and time series from a model without pollen #############################
-resid_explor <- bind_cols(data_for_model, resid = c(rep(NA, 0), residuals(model1, type = "deviance")))#for the model version when pollen isn't included
-resid_explor <- bind_cols(data_for_model, resid = c(rep(NA, max_lag), residuals(model1, type = "deviance")))# with pollen
-resid_explor %>% 
-  mutate(doy = yday(date),
-         syear = year(date)) %>% 
-  ##filter(NAB_station == "San Antonio A") %>% 
-  filter(date > ymd("2015-12-15") & date < ymd("2016-01-15")) %>% 
-  
-  ggplot(aes(x = date, y = resid * .5 + 2, col = resid)) + geom_point() + theme_bw() + 
-  scale_x_date(breaks = pretty(resid_explor$date, n = 22)) + scale_color_viridis_c() + 
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + facet_wrap(~NAB_station)+
-  
-  geom_line(aes(y=rollmean(resid + 2, 7, na.pad=TRUE))) +
-  geom_line(aes(y=rollmean(resid + 2, 14, na.pad=TRUE)), alpha = 0.3, lwd = 2) +
-  geom_line(aes(y=rollmean( pbir * 3, 7, na.pad=TRUE)), col = "black") +
-  
-  geom_line(aes(y=rollmean( cup_all_lm * .5, 1, na.pad=TRUE, align = "left")), col = "red")+
-  geom_line(aes(y=rollmean( trees_lm * .5, 1, na.pad=TRUE, align = "left")), col = "green") +
-  geom_line(aes(y=rollmean( pol_other_lm * .5, 1, na.pad=TRUE, align = "left")), col = "yellow") +
-  geom_line(aes(y=rollmean( v_pos_rel_Rhinovirus_m * .03 - 1, 7, na.pad=TRUE, align = "left")), col = "blue") +
-  geom_line(aes(y=rollmean( v_pos_rel_corona_m * .03 - 1, 7, na.pad=TRUE, align = "left")), col = "brown") +
-  geom_line(aes(y=rollmean( v_pos_rel_RSV_m * .05 - 1, 7, na.pad=TRUE, align = "left")), col = "purple") +
-  geom_line(aes(y=rollmean( v_pos_rel_flu_m * .03 - 1, 7, na.pad=TRUE, align = "left")), col = "orange") 
-  
-  
-
-  # geom_line(aes(y=rollmean(cup_all_lm, 7, na.pad=TRUE, align = "left")), col = "red") +
-  # geom_line(aes(y=rollmean(cup_all_lm, 14, na.pad=TRUE, align = "left")), col = "orange") +
-  # geom_line(aes(y=rollmean(cup_all_lm, 21, na.pad=TRUE, align = "left")), col = "yellow") 
-
-
-# resid_explor %>%
-#   mutate(doy = yday(date)) %>% 
-#   mutate(cup_all_lm_14d = rollmean(cup_all_lm, 14, na.pad=TRUE)) %>% 
-#   #filter(date < ymd("2016-07-15")) %>% 
-#   filter(doy < 70 | doy > 330) %>% 
-#   ggplot(aes(x = cup_all_lm_14d, y = resid)) + geom_point() + theme_bw() + facet_wrap(~NAB_station) +
-#   geom_smooth(se = FALSE)
+# resid_explor <- bind_cols(data_for_model, resid = c(rep(NA, 0), residuals(model1, type = "deviance")))#for the model version when pollen isn't included
+# resid_explor <- bind_cols(data_for_model, resid = c(rep(NA, max_lag), residuals(model1, type = "deviance")))# with pollen
+# resid_explor %>% 
+#   mutate(doy = yday(date),
+#          syear = year(date)) %>% 
+#   ##filter(NAB_station == "San Antonio A") %>% 
+#  # filter(date > ymd("2015-12-15") & date < ymd("2016-01-15")) %>% 
+#   
+#   ggplot(aes(x = date, y = resid * .5 + 2, col = resid)) +  theme_bw() + 
+#   scale_x_date(breaks = pretty(resid_explor$date, n = 22)) + scale_color_viridis_c() + 
+#   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + facet_wrap(~NAB_station)+
+#   #geom_point() +
+#   geom_line(aes(y=rollmean(resid + 2, 7, na.pad=TRUE))) +
+#   geom_line(aes(y=rollmean(resid + 2, 14, na.pad=TRUE)), alpha = 0.3, lwd = 2) +
+#   geom_line(aes(y=rollmean( pbir * 3, 7, na.pad=TRUE)), col = "black") +
+#   
+#   geom_line(aes(y=rollmean( cup_all_lm * .5, 1, na.pad=TRUE, align = "left")), col = "red")+
+#   geom_line(aes(y=rollmean( trees_lm * .5, 1, na.pad=TRUE, align = "left")), col = "green") +
+#   geom_line(aes(y=rollmean( pol_other_lm * .5, 1, na.pad=TRUE, align = "left")), col = "yellow") +
+#   geom_line(aes(y=rollmean( v_pos_rel_adj_Rhinovirus_m21 * 1000 - 1, 7, na.pad=TRUE, align = "left")), col = "blue") +
+#   geom_line(aes(y=rollmean( v_pos_rel_adj_corona_m21 * 1000 - 1, 7, na.pad=TRUE, align = "left")), col = "brown") +
+#   geom_line(aes(y=rollmean( v_pos_rel_adj_RSV_m21 * 1000 - 1, 7, na.pad=TRUE, align = "left")), col = "purple") +
+#   geom_line(aes(y=rollmean( v_pos_rel_adj_flu_m21 * 1000 - 1, 7, na.pad=TRUE, align = "left")), col = "orange") 
+#   
+#   
+# resid_explor %>% 
+#   mutate(doy = yday(date),
+#          syear = year(date)) %>% 
+#   ggplot(aes(x = v_pos_rel_adj_flu_m14, y = resid, col = doy)) + geom_point() + theme_bw() + geom_smooth(se = FALSE, color = "red") +
+#   facet_wrap(~NAB_station) + scale_color_viridis_c()
+#   # geom_line(aes(y=rollmean(cup_all_lm, 7, na.pad=TRUE, align = "left")), col = "red") +
+#   # geom_line(aes(y=rollmean(cup_all_lm, 14, na.pad=TRUE, align = "left")), col = "orange") +
+#   # geom_line(aes(y=rollmean(cup_all_lm, 21, na.pad=TRUE, align = "left")), col = "yellow") 
+# 
+# 
+# # resid_explor %>%
+# #   mutate(doy = yday(date)) %>% 
+# #   mutate(cup_all_lm_14d = rollmean(cup_all_lm, 14, na.pad=TRUE)) %>% 
+# #   #filter(date < ymd("2016-07-15")) %>% 
+# #   filter(doy < 70 | doy > 330) %>% 
+# #   ggplot(aes(x = cup_all_lm_14d, y = resid)) + geom_point() + theme_bw() + facet_wrap(~NAB_station) +
+# #   geom_smooth(se = FALSE)
 
 
 ### visualize effects of pollen ###############################################################
@@ -1294,15 +1381,15 @@ child_pol_25km <-
                    rel_widths = c(0.8, 1, 0.8, 1),
                    label_size = 11, label_x = 0.14, label_y = 0.9, hjust = 0, vjust = 0)
 child_pol_25km
-ggsave(file = "C:/Users/dsk856/Desktop/thcic_analysis/veryyoungchild_pol_50km_210409.jpg", plot = child_pol_25km,
-       height = 25, width = 21, units = "cm", dpi = 300)
+# ggsave(file = "C:/Users/dsk856/Desktop/thcic_analysis/child_pol_25km_210513.jpg", plot = child_pol_25km,
+#        height = 25, width = 21, units = "cm", dpi = 300)
 
   
 ### visualize effects of viruses ###############################################################
   
   ## rhinovirus
   pred1_rhino <- crosspred(rhino_lag,  model2, cen = 0, cumul = TRUE,
-                               at = seq(from = 0, to = max(data_for_model$v_pos_rel_Rhinovirus_m), by = 0.005))
+                               at = seq(from = 0, to = max(data_for_model$v_pos_rel_adj_Rhinovirus_m14), by = 0.0005))
   data.frame(rhino_conc = pred1_rhino$predvar,
                mean = pred1_rhino$allRRfit,
                lower = pred1_rhino$allRRlow,
@@ -1313,7 +1400,7 @@ ggsave(file = "C:/Users/dsk856/Desktop/thcic_analysis/veryyoungchild_pol_50km_21
 
   ## corona
   pred1_corona <- crosspred(corona_lag,  model2, cen = 0, cumul = TRUE,
-                           at = seq(from = 0, to = max(data_for_model$v_pos_rel_corona_m), by = 0.005))
+                           at = seq(from = 0, to = max(data_for_model$v_pos_rel_adj_corona_m14), by = 0.0005))
   data.frame(corona_conc = pred1_corona$predvar,
              mean = pred1_corona$allRRfit,
              lower = pred1_corona$allRRlow,
@@ -1324,7 +1411,7 @@ ggsave(file = "C:/Users/dsk856/Desktop/thcic_analysis/veryyoungchild_pol_50km_21
 
   ## RSV
   pred1_rsv <- crosspred(rsv_lag,  model2, cen = 0, cumul = TRUE,
-                         at = seq(from = 0, to = max(data_for_model$v_pos_rel_RSV_m), by = 0.005))
+                         at = seq(from = 0, to = max(data_for_model$v_pos_rel_adj_RSV_m14), by = 0.0005))
   data.frame(flu_conc = pred1_rsv$predvar,
              mean = pred1_rsv$allRRfit,
              lower = pred1_rsv$allRRlow,
@@ -1335,7 +1422,7 @@ ggsave(file = "C:/Users/dsk856/Desktop/thcic_analysis/veryyoungchild_pol_50km_21
 
   ## flu
   pred1_flu <- crosspred(flu_lag,  model2, cen = 0, cumul = TRUE,
-                            at = seq(from = 0, to = max(data_for_model$v_pos_rel_flu_m), by = 0.005))
+                            at = seq(from = 0, to = max(data_for_model$v_pos_rel_adj_flu_m14), by = 0.0005))
   data.frame(flu_conc = pred1_flu$predvar,
              mean = pred1_flu$allRRfit,
              lower = pred1_flu$allRRlow,
@@ -1386,7 +1473,7 @@ table2$yc_p_cases_2.5[3] <- sprintf("%.1f", 100*as.numeric(quantile(other_pol_at
 table2$yc_p_cases_97.5[3] <- sprintf("%.1f", 100*as.numeric(quantile(other_pol_attr, probs = 0.975))/sum(model2$fitted.values))
 
 #rhinovirus
-rhino_attr <- attrdl(x = data_for_model$v_pos_rel_Rhinovirus_m, basis = rhino_lag, cases = data_for_model$n_cases, 
+rhino_attr <- attrdl(x = data_for_model$v_pos_rel_adj_Rhinovirus_m21, basis = rhino_lag, cases = data_for_model$n_cases, 
                      model = model2, dir = "back", sim = TRUE, cen = 0, tot = TRUE, type = "an", range = NULL, nsim = 10000)
 table2$yc_n_cases_mean[4] <- sprintf("%.0f", mean(rhino_attr))
 table2$yc_n_cases_2.5[4] <- sprintf("%.0f", as.numeric(quantile(rhino_attr, probs = 0.025)))
@@ -1401,7 +1488,7 @@ table2$yc_p_cases_97.5[4] <- sprintf("%.1f", 100*as.numeric(quantile(rhino_attr,
 # sprintf("%.1f", 100*mean(rhino_inter_attr) / sum(model2$fitted.values))
 
 #corona
-corona_attr <- attrdl(x = data_for_model$v_pos_rel_corona_m, basis = corona_lag, cases = data_for_model$n_cases, model = model2, dir = "back", sim = TRUE,
+corona_attr <- attrdl(x = data_for_model$v_pos_rel_adj_corona_m21, basis = corona_lag, cases = data_for_model$n_cases, model = model2, dir = "back", sim = TRUE,
                      cen = 0, tot = TRUE, type = "an", range = NULL, nsim = 10000)
 table2$yc_n_cases_mean[5] <- sprintf("%.0f", mean(corona_attr))
 table2$yc_n_cases_2.5[5] <- sprintf("%.0f", as.numeric(quantile(corona_attr, probs = 0.025)))
@@ -1411,7 +1498,7 @@ table2$yc_p_cases_2.5[5] <- sprintf("%.1f", 100*as.numeric(quantile(corona_attr,
 table2$yc_p_cases_97.5[5] <- sprintf("%.1f", 100*as.numeric(quantile(corona_attr, probs = 0.975))/sum(model2$fitted.values))
 
 #rsv
-rsv_attr <- attrdl(x = data_for_model$v_pos_rel_RSV_m, basis = rsv_lag, cases = data_for_model$n_cases, model = model2, dir = "back", sim = TRUE,
+rsv_attr <- attrdl(x = data_for_model$v_pos_rel_adj_RSV_m21, basis = rsv_lag, cases = data_for_model$n_cases, model = model2, dir = "back", sim = TRUE,
                    cen = 0, tot = TRUE, type = "an", range = NULL, nsim = 10000)
 table2$yc_n_cases_mean[6] <- sprintf("%.0f", mean(rsv_attr))
 table2$yc_n_cases_2.5[6] <- sprintf("%.0f", as.numeric(quantile(rsv_attr, probs = 0.025)))
@@ -1422,7 +1509,7 @@ table2$yc_p_cases_97.5[6] <- sprintf("%.1f", 100*as.numeric(quantile(rsv_attr, p
 
 
 #flu
-flu_attr <- attrdl(x = data_for_model$v_pos_rel_flu_m, basis = flu_lag, cases = data_for_model$n_cases, model = model2, dir = "back", sim = TRUE,
+flu_attr <- attrdl(x = data_for_model$v_pos_rel_adj_flu_m21, basis = flu_lag, cases = data_for_model$n_cases, model = model2, dir = "back", sim = TRUE,
                       cen = 0, tot = TRUE, type = "an", range = NULL, nsim = 10000)
 table2$yc_n_cases_mean[7] <- sprintf("%.0f", mean(flu_attr))
 table2$yc_n_cases_2.5[7] <- sprintf("%.0f", as.numeric(quantile(flu_attr, probs = 0.025)))
@@ -1458,14 +1545,17 @@ attr_t_trees <- attrdl(x = data_for_model$trees_lm, basis = trees_lag, cases = d
 attr_t_other_pol <- attrdl(x = data_for_model$pol_other_lm, basis = pol_other_lag, cases = data_for_model$n_cases,
                         model = model1, dir = "back", sim = FALSE, cen = 0, tot = FALSE, type = "an", range = NULL)
 
-attr_t_rhino <- attrdl(x = data_for_model$v_tests_adj_pos_Rhinovirus_m, basis = rhino_lag, cases = data_for_model$n_cases, 
+attr_t_rhino <- attrdl(x = data_for_model$v_pos_rel_adj_Rhinovirus_m21, basis = rhino_lag, cases = data_for_model$n_cases, 
                        model = model1, dir = "back", sim = FALSE, cen = 0, tot = FALSE, type = "an", range = NULL)
 
-attr_t_corona <- attrdl(x = data_for_model$v_tests_adj_pos_Corona_m, basis = corona_lag, cases = data_for_model$n_cases, 
+attr_t_corona <- attrdl(x = data_for_model$v_pos_rel_adj_corona_m21, basis = corona_lag, cases = data_for_model$n_cases, 
                        model = model1, dir = "back", sim = FALSE, cen = 0, tot = FALSE, type = "an", range = NULL)
 
-attr_t_flu <- attrdl(x = data_for_model$flu_d_perc_pos, basis = flu_lag, cases = data_for_model$n_cases, 
+attr_t_flu <- attrdl(x = data_for_model$v_pos_rel_adj_flu_m21, basis = flu_lag, cases = data_for_model$n_cases, 
                        model = model1, dir = "back", sim = FALSE, cen = 0, tot = FALSE, type = "an", range = NULL)
+
+attr_t_rsv <- attrdl(x = data_for_model$v_pos_rel_adj_RSV_m21, basis = rsv_lag, cases = data_for_model$n_cases, 
+                     model = model1, dir = "back", sim = FALSE, cen = 0, tot = FALSE, type = "an", range = NULL)
 
 
 predicted_n_cases_t <- c(rep(NA, max_lag + 0), model1$fitted.values) #hist(model2$fitted.values)
@@ -1475,7 +1565,7 @@ fit <- lm(data_for_model$n_cases ~ predicted_n_cases_t)
 summary(fit)
 plot(jitter(data_for_model$n_cases), predicted_n_cases_t)
 
-attr_df <- data.frame(attr_t_cup, attr_t_trees, attr_t_other_pol, attr_t_rhino, attr_t_corona, attr_t_flu) #attr_t_other_pol, , predicted_n_cases_t
+attr_df <- data.frame(attr_t_cup, attr_t_trees, attr_t_other_pol, attr_t_rhino, attr_t_corona, attr_t_flu, attr_t_rsv) #attr_t_other_pol, , predicted_n_cases_t
 #attr_df[attr_df < 0] <- 0 #removing net protective effects of all variables
 #data_for_model$n_cases
 # attr_df_p <- attr_df/predicted_n_cases_t
@@ -1484,15 +1574,19 @@ attr_full_df <- bind_cols(data_for_model, attr_df) %>%
   # mutate(attr_t_unexplained = predicted_n_cases_t - attr_t_cup - attr_t_trees - attr_t_rhino - attr_t_corona - attr_t_flu - attr_t_other_pol) %>% 
   dplyr::select(date, NAB_station, agegroup_x_pop, 
                 #attr_t_unexplained, 
-                attr_t_cup, attr_t_trees,  attr_t_rhino, attr_t_corona, attr_t_flu, attr_t_other_pol) %>%   #attr_t_other_pol,
+                attr_t_cup, attr_t_trees, attr_t_other_pol, 
+                attr_t_rhino, attr_t_corona, attr_t_flu, attr_t_rsv) %>%   #attr_t_other_pol,
   pivot_longer(cols = contains("attr_t_"), names_to = "var", values_to = "risk_cases") %>% 
   mutate(week = week(date)) %>% 
   group_by(NAB_station, agegroup_x_pop, week, var) %>% 
   summarize(risk_cases = mean(risk_cases)) %>% 
   mutate(attr_risk_var_unorder = forcats::fct_recode(var, #unexplained = "attr_t_unexplained",
-                                                     Rhinovirus = "attr_t_rhino", Corona = "attr_t_corona", Influenza = "attr_t_flu",
+                                                     Rhinovirus = "attr_t_rhino", 
+                                                     Corona = "attr_t_corona",
+                                                     RSV = "attr_t_rsv",
+                                                     Influenza = "attr_t_flu",
                                               Cupressaceae = "attr_t_cup", trees = "attr_t_trees", other_pollen = "attr_t_other_pol"),
-         attr_risk_var = forcats::fct_relevel(attr_risk_var_unorder, c("Rhinovirus", "Corona", "Influenza",
+         attr_risk_var = forcats::fct_relevel(attr_risk_var_unorder, c("Rhinovirus", "Corona", "RSV","Influenza",
                                                                        "Cupressaceae", "trees", "other_pollen")), #"other_pollen"  "unexplained"
          date2 = lubridate::ymd( "2016-01-01" ) + lubridate::weeks( week - 1 ))
          
@@ -1502,12 +1596,12 @@ observed_ncases_t <- data_for_model %>%
          date2 = lubridate::ymd( "2016-01-01" ) + lubridate::weeks( week - 1 )) %>% 
   group_by(NAB_station, agegroup_x_pop, week, date2) %>% 
   summarize(mean_cases = mean(n_cases)) %>% 
-  mutate(attr_risk_var = "Rhinovirus")
+  mutate(attr_risk_var = "Rhinovirus") 
 
 ggplot(attr_full_df, aes(x = date2, y = (risk_cases / agegroup_x_pop) * 10000, fill = attr_risk_var)) + 
   facet_wrap(~NAB_station) + geom_area() + theme_bw() + scale_fill_viridis_d(name = "attributable risk") + 
   ylab("asthma-related ED visits (per 10,000 people per day)") + xlab("date") +
-  scale_x_date(labels = date_format("%b")) + coord_cartesian(ylim = c(-0.02, .3)) + #c(-0.01, .15) #c(-0.02, .6)
+  scale_x_date(labels = date_format("%b")) + coord_cartesian(ylim = c(-0.02, .4)) + #c(-0.01, .15) #c(-0.02, .6)
   geom_step(data = observed_ncases_t, aes( x = date2, y =(mean_cases / agegroup_x_pop) * 10000, 
                                            color = "observed cases")) + scale_color_discrete(name = "") 
   
@@ -1536,7 +1630,7 @@ average_cases_pred_jan <- bind_cols(data_for_model, attr_df) %>%
   mutate(risk_cases_per_pop = (risk_cases/agegroup_x_pop)*10000) %>% 
   summarize(total_risk_cases = sum(risk_cases_per_pop, na.rm = TRUE)) %>% 
   group_by(NAB_station) %>% 
-  summarize(mean_total_risk_cases = mean(total_risk_cases))
+  summarize(mean_total_risk_cases_jan = mean(total_risk_cases))
 
 bind_cols(data_for_model, attr_df) %>% 
   mutate(date_month = month(date)) %>% 
@@ -1545,7 +1639,7 @@ bind_cols(data_for_model, attr_df) %>%
   mutate(att_t_cup_risk_cases = (attr_t_cup/agegroup_x_pop) * 10000) %>% 
   summarize(attr_t_cup_mean = mean(att_t_cup_risk_cases, na.rm = TRUE)) %>% 
   left_join(., average_cases_pred_jan) %>% 
-mutate(prop_cases_cup = attr_t_cup_mean / mean_total_risk_cases) 
+mutate(prop_cases_cup = attr_t_cup_mean / mean_total_risk_cases_jan) 
 
 
 
