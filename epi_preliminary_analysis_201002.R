@@ -229,6 +229,16 @@ block_group_coord <- read_csv("C:/Users/dsk856/Desktop/misc_data/TX_block_group_
 opa_raw <- left_join(opa_raw, block_group_coord) #names(opa_raw) #names(block_group_coord)
 #summary(opa_raw$lat) #
 
+
+## Using census tract centroids when the block group isn't available but the census tract is (23967 records)
+census_tract_coord <- read_csv("C:/Users/dsk856/Desktop/misc_data/TX_census_tract_centroids.csv",  
+                              col_types = cols("GEOID11" =col_character(),
+                                               "lat_tract" = col_double(),
+                                               "lon_tract" = col_double())) %>% 
+                              rename(PAT_ADDR_CENSUS_BLOCK_GROUP_c = GEOID11)
+opa_raw <- left_join(opa_raw, census_tract_coord) #names(opa_raw) #names(block_group_coord)
+#test <- filter(opa_raw, is.na(lon) & !is.na(lon_tract))
+
 # get coordinates for each patient's census block
 # census_block_unique <- mutate(opa_raw, block = paste(PAT_ADDR_CENSUS_BLOCK_GROUP, PAT_ADDR_CENSUS_BLOCK, sep = " "),
 #                                        state = substr(PAT_ADDR_CENSUS_BLOCK_GROUP, 1, 2)) %>%
@@ -237,30 +247,39 @@ opa_raw <- left_join(opa_raw, block_group_coord) #names(opa_raw) #names(block_gr
 #                         distinct()
 # test <- get_acs(state="TX",geography="block group", year = 2016, variables= "B01001_003", geometry=TRUE)
 
-## Using zip code centroids when there is a problem with the input variable (28817 records out of 277232 records)
+## Using zip code centroids when neither census blocks nor tracts work but a zip code is available (4662 records out of 277232 records)
 data("zipcode") #head(zipcode)
 zipcode2 <- dplyr::select(zipcode, 
                         zip_pat = zip,
                         lat_zip = latitude, 
                        lon_zip = longitude)
 opa_raw <- left_join(opa_raw, zipcode2) %>% 
-          # mutate(lat_imp = lat,
-          #        lon_imp = lon),
           mutate(lon_imp = case_when(!is.na(lon) & lon < 0 ~ lon,
-                                     !is.na(lon) & lon > 0 ~ lon * -1, #correct for incorrectly entered coordinates
-                                     is.na(lon) ~ lon_zip), #use the zip code centroid if the census info is messed up 
+                                      is.na(lon) & !is.na(lon_tract) ~ lon_tract, #use census tract centroid when block not available
+                                     is.na(lon) & is.na(lon_tract) ~ lon_zip), #use the zip code centroid if the census info is messed up 
                  lat_imp = case_when(!is.na(lat) ~ lat,
-                                      is.na(lat) ~ lat_zip))
+                                      is.na(lat) & !is.na(lat_tract) ~ lat_tract,
+                                      is.na(lat) & is.na(lat_tract) ~ lat_zip)) %>% 
+  mutate(lon_imp = case_when(lon_imp < 0 ~ lon_imp,
+                             lon_imp > 0 ~ lon_imp * -1)) #correct for incorrectly entered coordinates
 # opa_raw$lat_imp[is.na(opa_raw$lat_imp)] <- opa_raw$lat_zip[is.na(opa_raw$lat_imp)] #including coordinates that are imputed from zip code
 # opa_raw$lon_imp[is.na(opa_raw$lon_imp)] <- opa_raw$lon_zip[is.na(opa_raw$lon_imp)]
 # opa_raw$lon_imp[opa_raw$lon_imp > 0 & !is.na(opa_raw$lon_imp)] <- opa_raw$lon_imp[opa_raw$lon_imp > 0 & !is.na(opa_raw$lon_imp)] * -1
+# test <- opa_raw %>% mutate(nchar_geoid = nchar(GEOID10)) %>% filter(nchar_geoid < 14)
+# hist(nchar(opa_raw$GEOID10))
 
-# opa_raw %>% sample_n(10000) %>%
-# ggplot(aes(x = lon_imp, y = lat_imp)) + geom_point()
-#   opa_raw %>% filter(PROVIDER_NAME == "Childrens Medical Center-Dallas") %>%
-#     filter(lat_bg > 32 & lat_bg < 33) %>%
-#     filter(lat_zip > 32 & lat_zip < 33) %>%
-#   ggplot(aes(x = lat_bg, y = lat_zip)) + geom_point(alpha = 0.1) + theme_bw() #do a quick visual check to see how much accuracy is lost using zip codes
+#how many records in each group
+# test <- filter(opa_raw, is.na(lon) ) #28817/277232   
+# test <- filter(opa_raw, is.na(lon) & !is.na(lon_tract) ) #23967/277232
+# test <- filter(opa_raw, is.na(lon) & is.na(lon_tract) & !is.na(lon_zip)) #4662/277232 #188/277232
+
+
+opa_raw %>% sample_n(10000) %>%
+ggplot(aes(x = lon_imp, y = lat_imp)) + geom_point()
+  opa_raw %>% filter(PROVIDER_NAME == "Childrens Medical Center-Dallas") %>%
+    filter(lat_imp > 32 & lat_imp < 33) %>%
+    filter(lat_zip > 32 & lat_zip < 33) %>%
+  ggplot(aes(x = lat_imp, y = lat_zip)) + geom_point(alpha = 0.1) + theme_bw() #do a quick visual check to see how much accuracy is lost using zip codes
 
 
 ### calculate distance from the nearest NAB station to each case ###############################################
@@ -289,8 +308,8 @@ NAB_dist_opa_join$geometry <- NULL
 
 opa_raw <- left_join(opa_raw, NAB_dist_opa_join) 
 
-### filter asthma ED visits where residence was within 25 km of an NAB station ###############################################
-#NAB_min_dist_threshold <- 25 moved to top of script
+### filter asthma ED visits where residence was within X km of an NAB station ###############################################
+#NAB_min_dist_threshold <- 25 #moved to top of script
 opa <- opa_raw %>%
         filter(NAB_min_dist < NAB_min_dist_threshold) %>% #restrict cases to patients whose residence was within 25 km of a station
         #filter(opa_raw, PAT_COUNTY %in% NAB_counties)  %>% #Travis county number is 453
