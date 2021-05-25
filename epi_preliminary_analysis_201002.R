@@ -705,8 +705,6 @@ nrevss_data4 %>% group_by(NAB_station, date) %>%
 
 ### combine the various datasets ######################################################################
 opa_day <- opa %>% group_by(date, NAB_station) %>% #names(opa) opa$PAT_AGE_YEARS
-  #filter(between(PAT_AGE_YEARS, 5, 17)) %>% #for children
-  #filter(between(PAT_AGE_YEARS, 18, 99)) %>% #for adults
   filter(between(PAT_AGE_YEARS, age_low, age_hi)) %>% #for adults
   summarize(n_cases = n()) %>% 
   mutate(doy = yday(date)) 
@@ -742,11 +740,15 @@ opa_day <- opa_day %>% ungroup() %>% group_by(NAB_station) %>% arrange(NAB_stati
 #                   pbir_py = (pbir / ((adult_pop))) * 100000)
 # write_csv(opa_day_adult, "C:/Users/dsk856/Desktop/thcic_analysis/opa_day_adult_50km_200918.csv")
 
-#making sure the denominator for PBIR is set for the correct age group. 
-#WARNING: THIS CAN FAIL IF THE AGE ISN'T SET FOR THE RIGHT CATEGORY 
-if(age_hi < 5){opa_day_agegroup_x <- mutate(opa_day, pbir = ((n_cases/young_kids_pop) * 1000000))} #PIBR per 1,000,000 
-if(age_hi == 17){opa_day_agegroup_x <- mutate(opa_day, pbir = ((n_cases/schoolkids_pop) * 1000000))} #PIBR per 1,000,000 
-if(age_hi > 90){opa_day_agegroup_x <- mutate(opa_day, pbir = ((n_cases/adult_pop) * 1000000))} #PIBR per 1,000,000 
+
+#making sure the population is set for the correct age group. 
+#WARNING: BE CAUTIOUS IF NOT USING THE EXACT AGEGROUPS
+if(age_hi < 5){opa_day_agegroup_x <- mutate(opa_day, agegroup_x_pop = young_kids_pop)} #PIBR per 1,000,000 
+if(age_hi == 17){opa_day_agegroup_x <- mutate(opa_day, agegroup_x_pop = schoolkids_pop)} #PIBR per 1,000,000 
+if(age_hi > 90){opa_day_agegroup_x <- mutate(opa_day, agegroup_x_pop = adult_pop)} #PIBR per 1,000,000 
+
+opa_day_agegroup_x <- opa_day_agegroup_x %>% mutate(pbir =  (n_cases/agegroup_x_pop) * 1000000)
+
 
 csv_file_name <- paste0("C:/Users/dsk856/Desktop/thcic_analysis/",
                         "opa_day_ages_",age_low,"_",age_hi,"_dist_", NAB_min_dist_threshold, "_",Sys.Date(),".csv")
@@ -1041,7 +1043,7 @@ ggsave(file = "C:/Users/dsk856/Desktop/thcic_analysis/time_series_fig_201008.jpg
 
 
 
-#### analysis with a distributed lags model using dlnm package #######################################
+#### setting up analysis with a distributed lags model using dlnm package #######################################
 library(dlnm)
 library(splines)
 library(MASS)
@@ -1084,9 +1086,9 @@ data_for_model <- opa_day %>%
   #filter(NAB_station == "San Antonio A") %>% #unique(opa_day$NAB_station)
   #filter(NAB_station != "College Station" & NAB_station != "Waco A" & NAB_station != "Waco B") %>% 
   mutate(
-    log_child_pop = log(children_pop),
-    child_pop = children_pop,
-    log_adult_pop = log(adult_pop),
+    #log_child_pop = log(children_pop),
+    #child_pop = children_pop,
+    #log_adult_pop = log(adult_pop),
     log_agegroup_x_pop = log(agegroup_x_pop),
     NAB_station_n = as.numeric(as.factor(NAB_station)),
     #flu_d_perc_pos = flu_d_prop_pos *100,
@@ -1100,7 +1102,7 @@ data_for_model <- opa_day %>%
     met_vpPa_s = scale(met_vpPa)
   ) %>%
   dplyr::select(NAB_station, date, n_cases, pbir, 
-                child_pop, log_child_pop, adult_pop, log_adult_pop, agegroup_x_pop, log_agegroup_x_pop,
+                agegroup_x_pop, log_agegroup_x_pop, #child_pop, log_child_pop, adult_pop, log_adult_pop, 
                 week_day,
                 #cup_other_lm, #cup_other_lms, 
                 cup_all_lm, cup_all_m,
@@ -1149,18 +1151,22 @@ data_for_model <- opa_day %>%
 # names(data_for_model) 
 # summary(data_for_model)
 # ggplot(data_for_model, aes( x = date, y = cup_all_lm )) + geom_point() + facet_wrap(~NAB_station) 
+
+## SI: viral prevalence by health service region (3 wk moving average) ----------------------------------------
 data_for_model %>% group_by(NAB_station, date) %>% 
   dplyr::select(contains("v_")) %>% 
   ungroup() %>% 
-  pivot_longer(cols = c(v_pos_prop_Rhinovirus_m,  v_pos_rel_adj_Rhinovirus_m21, 
-                        v_pos_prop_RSV_m, v_pos_rel_adj_RSV_m21,
-                        v_pos_prop_corona_m,  v_pos_rel_adj_corona_m21,
-                        v_pos_prop_flu_m, v_pos_rel_adj_flu_m21
-                        )) %>% 
- ggplot(aes( x = date, y = value, color = NAB_station)) + geom_step() + facet_wrap(~name, scales = "free_y")  + theme_bw()
+  rename(Rhinovirus = v_pos_rel_adj_Rhinovirus_m21,
+         Corona = v_pos_rel_adj_corona_m21,
+         RSV = v_pos_rel_adj_RSV_m21,
+         Influenza = v_pos_rel_adj_flu_m21
+         ) %>% 
+  pivot_longer(cols = c(Rhinovirus, Corona, RSV, Influenza)) %>% 
+ ggplot(aes( x = date, y = value, color = NAB_station)) + geom_step() + facet_wrap(~name, scales = "free_y", ncol = 1)  + theme_bw() +
+  ylab("viral prevalence index (scaled positive tests per day)")
 
 
-
+## dlnm model -----------------------------------------------------------------
 ## set up dlnm crossbasis object for use in glm
 max_lag <- 7
 cup_lag <- crossbasis(data_for_model$cup_all_lm, lag = max_lag, #log10 transformed & imputed pollen concentration for Cupressaceae
@@ -1625,7 +1631,8 @@ observed_ncases_t <- data_for_model %>%
 
 fig567_ymax <-  ifelse(age_low == 0,   20, #setting figure ymax manually
                 (ifelse(age_low == 5,  55, 
-                (ifelse(age_low == 18, 40, print("error in age_low"))))))
+                (ifelse(age_low == 18, 10, 
+                        print("error in age_low"))))))
 fig567 <- ggplot(attr_full_df, aes(x = date2, y = (risk_cases / agegroup_x_pop) * 1000000, fill = attr_risk_var)) + 
   facet_wrap(~NAB_station) + geom_area() + theme_bw() + scale_fill_viridis_d(name = "attributable risk") + 
   ylab("asthma-related ED visits (per 1,000,000 people per day)") + xlab("date") +
