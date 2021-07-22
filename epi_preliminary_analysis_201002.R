@@ -27,8 +27,8 @@ rm(list = ls())
 NAB_min_dist_threshold <- 25
 
 # define target age range here 
-age_low <- 18 # >= #young kids = 0, school-aged kids = 5, adults = 18
-age_hi <- 99 # <= #young kids = 5, school-aged kids = 17, adults = 99
+age_low <- 5 # >= #young kids = 0, school-aged kids = 5, adults = 18
+age_hi <- 17 # <= #young kids = 5, school-aged kids = 17, adults = 99
 
 ### load in NAB data and do linear interpolation #####################################################
 #before 3/15/21 this was a separate script here: ~/TX_epi/NAB_missing_data.R
@@ -361,7 +361,7 @@ day_NAB_list <- mutate(day_NAB_list, n_cases = 0, doy = yday(date))
 # }
 # 
 # AllM <- v17$name[5:27]
-# AllF <- v17$name[29:51]9
+# AllF <- v17$name[29:51]
 # All_vars <- c(AllM, AllF)
 
 # ### define target age range here #moved to top of script
@@ -410,7 +410,7 @@ pop_near_NAB_schoolkids <- census_All_2017_sf %>% filter(NAB_min_dist_bg < NAB_m
     summarize(schoolkids_pop = sum(estimate)) #names(pop_near_NAB)
 
 pop_near_NAB_adult <- census_All_2017_sf %>% filter(NAB_min_dist_bg < NAB_min_dist_threshold) %>%
-  filter(variable %in% c_vars_adult) %>%  #only select variables that are population of children between 5 and 17
+  filter(variable %in% c_vars_adults) %>%  #only select variables that are population of children between 5 and 17
   group_by(NAB_station) %>%
   summarize(adult_pop = sum(estimate)) #names(pop_near_NAB)
 
@@ -1145,7 +1145,23 @@ data_for_model <- opa_day %>%
   #filter(   NAB_station != "San Antonio A" & NAB_station != "San Antonio B" ) %>% # NAB_station != "Waco A",   # NAB_station != "College Station") %>% 
   group_by(NAB_station) %>% 
   mutate(time = row_number(),
-         all_pol_lm = log10(cup_all_m + trees_m + pol_other_m + 1)) 
+         all_pol_lm = log10(cup_all_m + trees_m + pol_other_m + 1)) %>% 
+  mutate(months = month(date),
+         years = year(date)) %>% 
+  mutate(main_cup_season = case_when(date > ymd("2015 - 10 - 01") & date < ymd("2015 - 12 - 20") ~ 0,
+                                     date > ymd("2015 - 12 - 19") & date < ymd("2016 - 03 - 15") ~ 1,
+                                     date > ymd("2016 - 03 - 14") & date < ymd("2016 - 12 - 20") ~ 0,
+                                     date > ymd("2016 - 12 - 19") & date < ymd("2017 - 03 - 15") ~ 1,
+                                     date > ymd("2017 - 03 - 14") & date < ymd("2017 - 12 - 20") ~ 0,
+                                     date > ymd("2017 - 12 - 19") & date < ymd("2018 - 03 - 15") ~ 1),
+         season = case_when(date > ymd("2015 - 10 - 01") & date < ymd("2015 - 12 - 20") ~ "no",
+                            date > ymd("2015 - 12 - 19") & date < ymd("2016 - 03 - 15") ~ "15 - 16",
+                            date > ymd("2016 - 03 - 14") & date < ymd("2016 - 12 - 20") ~ "no",
+                            date > ymd("2016 - 12 - 19") & date < ymd("2017 - 03 - 15") ~ "16 - 17",
+                            date > ymd("2017 - 03 - 14") & date < ymd("2017 - 12 - 20") ~ "no",
+                            date > ymd("2017 - 12 - 19") & date < ymd("2018 - 03 - 15") ~ "17"))  #ggplot(data_for_model, aes(x = date, y = main_cup_season)) + geom_point()
+data_for_model2 <- data_for_model
+data_for_model <- filter(data_for_model, main_cup_season == 1)# %>% filter(years == 2017)
 
 
 # names(data_for_model) 
@@ -1168,23 +1184,23 @@ data_for_model %>% group_by(NAB_station, date) %>%
 
 ## dlnm model -----------------------------------------------------------------
 ## set up dlnm crossbasis object for use in glm
-max_lag <- 7
+max_lag <- 28
 cup_lag <- crossbasis(data_for_model$cup_all_lm, lag = max_lag, #log10 transformed & imputed pollen concentration for Cupressaceae
-                     argvar=list(fun = "ns", knots = 3), #shape of response curve
-                     arglag = list(fun = "ns", knots = 3)) #shape of lag
+                     argvar=list(fun = "lin"), #shape of response curve
+                     arglag = list(fun = "integer")) #shape of lag
                     # argvar=list(fun = "poly", degree = 3), #shape of response curve
                     # arglag = list(fun = "poly", degree = 3)) #shape of lag
 
 trees_lag <- crossbasis(data_for_model$trees_lm, lag = max_lag, 
-                        argvar=list(fun = "ns", knots = 3), #shape of response curve
-                        arglag = list(fun = "ns", knots = 3)) #shape of lag
+                        argvar=list(fun = "lin"), #shape of response curve
+                        arglag = list(fun = "integer")) #shape of lag
                       # argvar=list(fun = "poly", degree = 3), #shape of response curve
                       # arglag = list(fun = "poly", degree = 3)) #shape of lag
                     
 
 pol_other_lag <- crossbasis(data_for_model$pol_other_lm, lag = max_lag, 
-                            argvar=list(fun = "ns", knots = 3), #shape of response curve
-                            arglag = list(fun = "ns", knots = 3)) #shape of lag
+                            argvar=list(fun = "lin"), #shape of response curve
+                            arglag = list(fun = "integer")) #shape of lag
                       # argvar=list(fun = "poly", degree = 3), #shape of response curve
                       # arglag = list(fun = "poly", degree = 3)) #shape of lag
 
@@ -1208,12 +1224,12 @@ flu_lag <- crossbasis(data_for_model$v_pos_rel_adj_flu_m21, lag = 0, #percent of
                       # arglag = list(fun = "poly", degree = 3)) #shape of lag
                       argvar=list(fun = "lin"), arglag = list(fun = "lin"))
 
-
+  
 #quasiposson glm with included variables
 model1 <- glm(n_cases ~  #number of cases at a station on an observed day
                     NAB_station + #effect of station
                     offset(log(agegroup_x_pop)) +  #offset for the population of a study area
-                    cup_lag +  trees_lag  + pol_other_lag + #dlnm crossbasis for each pollen type
+                    #cup_lag +  #trees_lag  + pol_other_lag + #dlnm crossbasis for each pollen type
                     rhino_lag + corona_lag  + rsv_lag +  flu_lag +
                     # rhino_lag  * trees_lag +#dlnm crossbasis for each virus type
                     # cup_lag  *  cup_all_lm  +# met_vpPa +
@@ -1229,16 +1245,17 @@ model1 <- glm(n_cases ~  #number of cases at a station on an observed day
                     # met_sradWm2_s + #
                     # met_prcp_flag +
                     # ns(time, df = 12) + #not including spline anymore
+              #main_cup_season +
               week_day, #day of week term
               family = quasipoisson, #quasipoisson
               data = data_for_model)  
 fqaic(model1)
 summary(model1)
-
+str(model1)
 
 # include the 1-day lagged residual in the model
-resid_model1 <- c(rep(NA, max_lag), residuals(model1, type = "deviance"))
-#resid_model1 <- c(rep(NA, 0), residuals(model1, type = "deviance"))#for the model version when pollen isn't included
+#resid_model1 <- c(rep(NA, max_lag), residuals(model1, type = "deviance"))
+resid_model1 <- c(rep(NA, 0), residuals(model1, type = "deviance"))#for the model version when pollen isn't included
 model2 <- update(model1, .~. + tsModel::Lag(resid_model1, 1))  #length(resid_model1) #length(residuals(model1, type = "deviance"))
 
 # hist(model1$fitted.values, n = 100)
@@ -1260,56 +1277,191 @@ model2 <- update(model1, .~. + tsModel::Lag(resid_model1, 1))  #length(resid_mod
 # 
 # summary(model1)
 # summary(model2)
+
+
 ### investigate residuals and time series from a model without pollen #############################
-# resid_explor <- bind_cols(data_for_model, resid = c(rep(NA, 0), residuals(model1, type = "deviance")))#for the model version when pollen isn't included
-# resid_explor <- bind_cols(data_for_model, resid = c(rep(NA, max_lag), residuals(model1, type = "deviance")))# with pollen
-# resid_explor %>% 
+# some basic exploration of lags and correlations
+# data_for_model %>% ungroup() %>%  
+#   mutate(cuplag6 = cup_lag[,7]) %>% 
+#   group_by(NAB_station) %>% 
+#   # dplyr::select(pbir, cuplag6, NAB_station) %>% 
+#   # filter(!is.na(cuplag6)) %>% 
+#   summarize(correlation = cor(cuplag6, pbir))
+# ggplot(aes(x = cuplag6, y = pbir)) + geom_point(alpha = 0.2) + facet_wrap(~NAB_station) + geom_smooth(se  = FALSE) + theme_bw()
+# 
+# str(cup_lag)
+# 
+
+# #data exploration figure for correlations between residuals and pollen
+# test <- NA
+# test2 <- NA
+# for(i in 1:max_lag){
+#   test <- data_for_model %>% ungroup() %>%
+#     mutate(focal_pol_lag = cup_lag[,i]) %>%
+#     mutate(nopol_resid = residuals(model1, type = "deviance")) %>%  #model1
+#     #mutate(nopol_resid = c(1, residuals(model2, type = "deviance"))) %>%  # model2 has the lagged residuals included
+#     #mutate(months = month(date)) %>% filter(months == 12 | months == 1 | months == 2) %>% #filter(months != 1 & months != 2) %>%
+#     #mutate(years = year(date)) %>% filter(years == 2017) %>%
+#     group_by(NAB_station) %>%
+#     dplyr::select(nopol_resid, focal_pol_lag, NAB_station) %>%
+#     filter(!is.na(focal_pol_lag)) %>%
+#     summarize(correlation = cor(focal_pol_lag, nopol_resid)) %>%
+#     mutate(lag = i - 1)
+#   if(i == 1){test2 <- test}
+#   if(i > 1){test2 <- bind_rows(test, test2)}  #test2 <- test
+# }
+# test2 %>% ggplot(aes(x = lag, y = correlation, color = NAB_station)) + geom_line(lwd = 2) + theme_bw() + 
+#   ylab("correlation between Cupressaceae pollen and residuals")
+
+#data exploration figure for correlations between residuals and pollen when model is only in Ja season
+resid_df <- NA
+resid_df2 <- NA
+
+data_for_model2 <- dplyr::select(data_for_model2, date, NAB_station, cup_all_lm, trees_lm)
+for(i in 1:max_lag){
+  data_for_model3 <- mutate(data_for_model2, focal_pol_lag = lag(cup_all_lm, i))
+  resid_df <- left_join(data_for_model, data_for_model3) %>% ungroup() %>%
+    mutate(nopol_resid = residuals(model1, type = "deviance")) %>%  #model1
+    #mutate(nopol_resid = c(1, residuals(model2, type = "deviance"))) %>%  # model2 has the lagged residuals included
+    #mutate(months = month(date)) %>% filter(months == 12 | months == 1 | months == 2) %>% #filter(months != 1 & months != 2) %>%
+    #mutate(years = year(date)) %>% filter(years == 2017) %>%
+    group_by(NAB_station) %>%
+    dplyr::select(nopol_resid, focal_pol_lag, NAB_station) %>%
+    filter(!is.na(focal_pol_lag)) %>%
+    summarize(correlation = cor(focal_pol_lag, nopol_resid)) %>%
+    mutate(lag = i - 1)
+  if(i == 1){resid_df2 <- resid_df}
+  if(i > 1){resid_df2 <- bind_rows(resid_df, resid_df2)}  #test2 <- test
+}
+resid_df2 %>% ggplot(aes(x = lag, y = correlation, color = NAB_station)) + geom_line(lwd = 2) + theme_bw() + 
+  ylab("correlation between Cupressaceae pollen and residuals")
+
+#residuals vs pollen
+resid_df <- NA
+resid_df2 <- NA
+
+for(i in 1:max_lag){
+  data_for_model3 <- mutate(data_for_model2, focal_pol_lag = lag(cup_all_lm, i))
+  resid_df <- left_join(data_for_model, data_for_model3) %>% ungroup() %>%
+    mutate(nopol_resid = residuals(model1, type = "deviance")) %>%  #model1
+    group_by(NAB_station) %>%
+    filter(!is.na(focal_pol_lag))
+  if(i == 1){resid_df2 <- resid_df}
+  if(i > 1){resid_df2 <- bind_rows(resid_df, resid_df2)}  #test2 <- test
+}
+resid_df2_ts <- resid_df2 %>% 
+  mutate(doy = yday(date),
+         doy2 = case_when(doy > 300 ~ doy -365,
+                          doy < 301 ~ doy )) %>% 
+  filter(doy2 < 60)  
+resid_df2_ts %>% ggplot(aes(x = doy2, y = nopol_resid)) + geom_point(alpha = 0.002) + theme_bw() + 
+  geom_line(aes(y=rollmean(nopol_resid , 7, na.pad=TRUE)), lwd = 1) +
+  ylab("correlation between Cupressaceae pollen and residuals") + xlab("Julian day") + facet_grid(season~NAB_station) + 
+  geom_line(aes(y=rollmean(cup_all_lm, 7, na.pad=TRUE)), color = "red") +
+  geom_line(aes(y=rollmean(trees_lm, 7, na.pad=TRUE)), color = "blue")
+
+
+
+
+
+
+#data exploration figure for pollen vs residuals 
+test <- NA
+test2 <- NA
+for(i in 1:max_lag){
+  test <- data_for_model %>% ungroup() %>%
+    mutate(focal_pol_lag = cup_lag[,i]) %>%
+    mutate(nopol_resid = residuals(model1, type = "deviance")) %>%  #model1
+    #mutate(nopol_resid = c(1, residuals(model2, type = "deviance"))) %>%  # model2 has the lagged residuals included
+    mutate(months = month(date)) %>% #filter(months == 12 | months == 1 | months == 2) %>% #filter(months != 1 & months != 2) %>%
+    mutate(years = year(date)) %>% #filter(years == 2017) %>%
+    group_by(NAB_station) %>%
+    dplyr::select(nopol_resid, focal_pol_lag, NAB_station, months, years) %>%
+    filter(!is.na(focal_pol_lag)) %>%
+    #summarize(correlation = cor(focal_pol_lag, nopol_resid)) %>%
+    mutate(lag = i - 1)
+  if(i == 1){test2 <- test}
+  if(i > 1){test2 <- bind_rows(test, test2)}  #test2 <- test
+}
+
+#
+
+
+resid_df2 %>% 
+  filter(!is.na(nopol_resid)) %>% 
+  filter(!is.na(focal_pol_lag)) %>% 
+  filter(lag == 28) %>% 
+  ggplot(aes(x = focal_pol_lag, y = nopol_resid,  color = months)) + geom_point() + theme_bw() + 
+  ylab("residual") + xlab("pollen concentration")+ facet_wrap(~NAB_station) + geom_smooth(method = "lm", se = FALSE)
+
+
+
+
+resid_explor <- bind_cols(data_for_model, resid = c(rep(NA, 0), residuals(model1, type = "deviance")))#for the model version when pollen isn't included
+resid_explor <- bind_cols(data_for_model, resid = c(rep(NA, max_lag), residuals(model1, type = "deviance")))# with pollen
+resid_explor %>% #str(resid_explor)
+  ungroup() %>% 
+  mutate(doy = yday(date),
+         syear = year(date)) %>%
+  mutate(cuplag6 = cup_lag[,1]) %>% 
+  ##filter(NAB_station == "San Antonio A") %>%
+  #filter(date > ymd("2017-02-01") & date < ymd("2017-05-15")) %>%
+
+  ggplot(aes(x = date, y = resid , col = resid)) +  theme_bw() +
+  scale_x_date(breaks = pretty(resid_explor$date, n = 22)) + scale_color_viridis_c() +
+  scale_y_continuous("residuals", sec.axis = sec_axis(~ ., name = "Cup pollen")) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), axis.title.y.right = element_text(color = "red")) +
+  facet_wrap(~NAB_station)+
+  geom_point(col = "black", alpha = 0.1) +
+  geom_point(aes(x = date, y = cuplag6), col = "red", alpha = 0.1)+
+  geom_line(aes(y=rollmean(resid , 7, na.pad=TRUE)), alpha = 0.9, col = "black") +
+  # geom_line(aes(y=rollmean(resid , 14, na.pad=TRUE)), alpha = 0.9, lwd = 2) +
+  #geom_line(aes(y=rollmean( pbir * 3, 7, na.pad=TRUE)), col = "black") +
+  geom_line(aes(y=rollmean(cuplag6 , 7, na.pad=TRUE)), alpha = 0.9, col = "red") 
+  # ♫
+  # geom_line(aes(y=rollmean( cuplag6 * .5, 1, na.pad=TRUE, align = "left")), col = "red") +
+  # geom_line(aes(y=rollmean( trees_lm * .5, 1, na.pad=TRUE, align = "left")), col = "green") +
+  # geom_line(aes(y=rollmean( pol_other_lm * .5, 1, na.pad=TRUE, align = "left")), col = "yellow") +
+  # geom_line(aes(y=rollmean( v_pos_rel_adj_Rhinovirus_m21 * 1000 - 1, 7, na.pad=TRUE, align = "left")), col = "blue") +
+  # geom_line(aes(y=rollmean( v_pos_rel_adj_corona_m21 * 1000 - 1, 7, na.pad=TRUE, align = "left")), col = "brown") +
+  # geom_line(aes(y=rollmean( v_pos_rel_adj_RSV_m21 * 1000 - 1, 7, na.pad=TRUE, align = "left")), col = "purple") +
+  # geom_line(aes(y=rollmean( v_pos_rel_adj_flu_m21 * 1000 - 1, 7, na.pad=TRUE, align = "left")), col = "orange")
+
+
+# resid_explor %>%
 #   mutate(doy = yday(date),
-#          syear = year(date)) %>% 
-#   ##filter(NAB_station == "San Antonio A") %>% 
-#  # filter(date > ymd("2015-12-15") & date < ymd("2016-01-15")) %>% 
-#   
-#   ggplot(aes(x = date, y = resid * .5 + 2, col = resid)) +  theme_bw() + 
-#   scale_x_date(breaks = pretty(resid_explor$date, n = 22)) + scale_color_viridis_c() + 
-#   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + facet_wrap(~NAB_station)+
-#   #geom_point() +
-#   geom_line(aes(y=rollmean(resid + 2, 7, na.pad=TRUE))) +
-#   geom_line(aes(y=rollmean(resid + 2, 14, na.pad=TRUE)), alpha = 0.3, lwd = 2) +
-#   geom_line(aes(y=rollmean( pbir * 3, 7, na.pad=TRUE)), col = "black") +
-#   
-#   geom_line(aes(y=rollmean( cup_all_lm * .5, 1, na.pad=TRUE, align = "left")), col = "red")+
-#   geom_line(aes(y=rollmean( trees_lm * .5, 1, na.pad=TRUE, align = "left")), col = "green") +
-#   geom_line(aes(y=rollmean( pol_other_lm * .5, 1, na.pad=TRUE, align = "left")), col = "yellow") +
-#   geom_line(aes(y=rollmean( v_pos_rel_adj_Rhinovirus_m21 * 1000 - 1, 7, na.pad=TRUE, align = "left")), col = "blue") +
-#   geom_line(aes(y=rollmean( v_pos_rel_adj_corona_m21 * 1000 - 1, 7, na.pad=TRUE, align = "left")), col = "brown") +
-#   geom_line(aes(y=rollmean( v_pos_rel_adj_RSV_m21 * 1000 - 1, 7, na.pad=TRUE, align = "left")), col = "purple") +
-#   geom_line(aes(y=rollmean( v_pos_rel_adj_flu_m21 * 1000 - 1, 7, na.pad=TRUE, align = "left")), col = "orange") 
-#   
-#   
-# resid_explor %>% 
-#   mutate(doy = yday(date),
-#          syear = year(date)) %>% 
+#          syear = year(date)) %>%
 #   ggplot(aes(x = v_pos_rel_adj_flu_m14, y = resid, col = doy)) + geom_point() + theme_bw() + geom_smooth(se = FALSE, color = "red") +
 #   facet_wrap(~NAB_station) + scale_color_viridis_c()
 #   # geom_line(aes(y=rollmean(cup_all_lm, 7, na.pad=TRUE, align = "left")), col = "red") +
 #   # geom_line(aes(y=rollmean(cup_all_lm, 14, na.pad=TRUE, align = "left")), col = "orange") +
-#   # geom_line(aes(y=rollmean(cup_all_lm, 21, na.pad=TRUE, align = "left")), col = "yellow") 
-# 
-# 
-# # resid_explor %>%
-# #   mutate(doy = yday(date)) %>% 
-# #   mutate(cup_all_lm_14d = rollmean(cup_all_lm, 14, na.pad=TRUE)) %>% 
-# #   #filter(date < ymd("2016-07-15")) %>% 
-# #   filter(doy < 70 | doy > 330) %>% 
-# #   ggplot(aes(x = cup_all_lm_14d, y = resid)) + geom_point() + theme_bw() + facet_wrap(~NAB_station) +
-# #   geom_smooth(se = FALSE)
+#   # geom_line(aes(y=rollmean(cup_all_lm, 21, na.pad=TRUE, align = "left")), col = "yellow")
+
+
+# resid_explor %>%
+#   mutate(doy = yday(date)) %>%
+#   mutate(cup_all_lm_14d = rollmean(cup_all_lm, 14, na.pad=TRUE)) %>%
+#   #filter(date < ymd("2016-07-15")) %>%
+#   filter(doy < 70 | doy > 330) %>%
+#   ggplot(aes(x = cup_all_lm_14d, y = resid)) + geom_point() + theme_bw() + facet_wrap(~NAB_station) +
+#   geom_smooth(se = FALSE)
+
+#difference between years in PBIR
+data_for_model %>% 
+  mutate(years = year(date),
+         jday = yday(date)) %>% 
+  dplyr::select(years, jday, pbir, NAB_station) %>% 
+  ggplot(aes(x=jday, y = pbir, color = as.factor(years))) + theme_bw()+ facet_wrap(~NAB_station)+
+  geom_line(aes(y=rollmean(pbir, 7, na.pad=TRUE, align = "left"))) + #scale_y_carte(limits = c(0, 50))
+  coord_cartesian(ylim = c(0,60))
+  
 
 
 ### Fig 2,3,4: visualize effects of pollen ###############################################################
 #cup all  
 pred1_cup <- crosspred(cup_lag,  model2, #at = 1,
                       at = seq(from = 0, to = max(data_for_model$cup_all_lm), by = 0.10), 
-                      bylag = 0.2, cen = 0, cumul = TRUE) #str(pred1_cup)
+                      bylag = 1, cen = 0, cumul = TRUE) #str(pred1_cup)
 
 child_RR_x_cup_25km <- 
   data.frame(pol_conc = 10^(pred1_cup$predvar), 
@@ -1334,10 +1486,12 @@ ggplot(aes(x = pol_conc_exp, y = lag, z = RR)) + geom_contour_filled(bins = 10) 
   scale_fill_viridis_d(option = "plasma", direction = -1, name = "RR") + #, begin = 0.3, end = 1)  #automatically bins and turns to factor
   annotation_logticks(sides = "b")  
   #ggtitle(paste0("  n_pop = ", sum(pop_near_NAB_agegroup_x$agegroup_x_pop)))
+cowplot::plot_grid(child_RR_x_cup_25km, child_lag_RR_x_cup_25km)
 
 ## trees #
-pred1_trees <- crosspred(trees_lag,  model2, cen = 0, cumul = TRUE,
-                         at = seq(from = 0, to = max(data_for_model$trees_lm), by = .10))
+pred1_trees <- crosspred(trees_lag,  model2, 
+                         at = seq(from = 0, to = max(data_for_model$trees_lm), by = .10),
+                         bylag = 1, cen = 0, cumul = TRUE)
 
 # plot(pred1_trees, "overall", ci = "lines", #ylim = c(0.95, 4), lwd = 2,
 #      xlab = expression(paste("log10(tree pollen grains m"^"3",")")), 
@@ -1369,8 +1523,9 @@ child_lag_RR_x_trees_25km <-
 
 
 ## pol_other
-pred1_pol_other <- crosspred(pol_other_lag,  model2, cen = 0, cumul = TRUE,
-                         at = seq(from = 0, to = max(data_for_model$pol_other_lm), by = .10))
+pred1_pol_other <- crosspred(pol_other_lag,  model2, 
+                         at = seq(from = 0, to = max(data_for_model$pol_other_lm), by = .10),
+                         bylag = 1, cen = 0, cumul = TRUE)
 child_RR_x_pol_other_25km <-
   data.frame(pol_conc = 10^(pred1_pol_other$predvar),
              mean = pred1_pol_other$allRRfit,
