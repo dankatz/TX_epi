@@ -165,7 +165,7 @@ opa_raw_sf <- opa_raw %>%
               st_transform(crs = 26914)   #UTM 14 N
 
 NAB_tx_sf <- NAB_tx %>% 
-              select(Lat, Long, NAB_station) %>%
+              dplyr::select(Lat, Long, NAB_station) %>%
               distinct() %>%
               #filter(NAB_station != "") %>% #not sure how this made its way in, maybe a floating decimal?
               filter(!is.na(Lat)) %>% #not sure how this made its way in
@@ -396,7 +396,7 @@ opa_day <- opa_day %>% ungroup() %>% group_by(NAB_station) %>% arrange(NAB_stati
 #for agegroup_x
 opa_day_agegroup_x <- mutate(opa_day, pbir = ((n_cases/agegroup_x_pop) * 10000), #PIBR per 10,000 for children
                   pbir_py = (pbir / ((agegroup_x_pop))) * 100000)
-# write_csv(opa_day_agegroup_x, paste0("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_ages_",age_low,"_",age_hi, "_25km_200924.csv"))
+# write_csv(opa_day_agegroup_x, paste0("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_ages_",age_low,"_",age_hi, "_25km_201002.csv"))
 
 #summary(opa_day_agegroup_x)
 
@@ -749,7 +749,7 @@ summary(data_for_model)
 # ja_lag <- crossbasis(data_for_model$ja_lm, lag = 21,
 #                           argvar=list("bs",degree=2,df=3), arglag = list(fun = "poly", degree = 3)) #hist(data_for_model$ja_lm)
 
-max_lag <- 30
+max_lag <- 14
 cup_lag <- crossbasis(data_for_model$cup_all_lm, lag = max_lag,
                      argvar=list(fun = "poly", degree = 3), arglag = list(fun = "poly", degree = 3)) #hist(data_for_model$ja_lm) #str(ja_lag)
 

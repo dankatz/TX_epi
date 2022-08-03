@@ -1161,7 +1161,7 @@ data_for_model <- opa_day %>%
                             date > ymd("2017 - 03 - 14") & date < ymd("2017 - 12 - 20") ~ "no",
                             date > ymd("2017 - 12 - 19") & date < ymd("2018 - 03 - 15") ~ "17"))  #ggplot(data_for_model, aes(x = date, y = main_cup_season)) + geom_point()
 data_for_model2 <- data_for_model
-data_for_model <- filter(data_for_model, main_cup_season == 1)# %>% filter(years == 2017)
+data_for_model <- filter(data_for_model, main_cup_season == 1) %>% filter(season == "15 - 16")
 
 
 # names(data_for_model) 
@@ -1229,7 +1229,7 @@ flu_lag <- crossbasis(data_for_model$v_pos_rel_adj_flu_m21, lag = 0, #percent of
 model1 <- glm(n_cases ~  #number of cases at a station on an observed day
                     NAB_station + #effect of station
                     offset(log(agegroup_x_pop)) +  #offset for the population of a study area
-                    #cup_lag +  #trees_lag  + pol_other_lag + #dlnm crossbasis for each pollen type
+                    #cup_lag +  trees_lag  + pol_other_lag + #dlnm crossbasis for each pollen type
                     rhino_lag + corona_lag  + rsv_lag +  flu_lag +
                     # rhino_lag  * trees_lag +#dlnm crossbasis for each virus type
                     # cup_lag  *  cup_all_lm  +# met_vpPa +
@@ -1254,8 +1254,8 @@ summary(model1)
 str(model1)
 
 # include the 1-day lagged residual in the model
-#resid_model1 <- c(rep(NA, max_lag), residuals(model1, type = "deviance"))
-resid_model1 <- c(rep(NA, 0), residuals(model1, type = "deviance"))#for the model version when pollen isn't included
+resid_model1 <- c(rep(NA, max_lag), residuals(model1, type = "deviance"))
+#resid_model1 <- c(rep(NA, 0), residuals(model1, type = "deviance"))#for the model version when pollen isn't included
 model2 <- update(model1, .~. + tsModel::Lag(resid_model1, 1))  #length(resid_model1) #length(residuals(model1, type = "deviance"))
 
 # hist(model1$fitted.values, n = 100)
