@@ -156,7 +156,10 @@ NAB_tx_mtc <- filter(NAB_tx_mt, withheld == 1)
 
 
 ### THCIC outpatient data on asthma-related ED visits #####################################################
-opa_raw <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/op_asthma.csv")
+# this dataset was created in the 'THCIC_assembly.R' script on github: 
+# https://github.com/dankatz/TX_epi/blob/master/THCIC_assembly.R
+
+opa_raw <- read_csv("Z:/THCIC/Katz/op_asthma_2015q4_2020.csv")
 #opa_raw$PAT_COUNTY <- sprintf("%03s",opa_raw$PAT_COUNTY) %>% sub(" ", "0",.) %>% sub(" ", "0",.)
 opa_raw <- mutate(opa_raw, PAT_COUNTY = sprintf("%03s", PAT_COUNTY), 
                   PAT_COUNTY = sub(" ", "0", PAT_COUNTY),
@@ -178,7 +181,7 @@ opa_raw <- mutate(opa_raw, PAT_COUNTY = sprintf("%03s", PAT_COUNTY),
 #                                  "lat" = col_double(), 
 #                                  "lon" = col_double()))
 
-block_group_coord <- read_csv("C:/Users/dsk856/Desktop/misc_data/TX_block_group_centroids.csv",  
+block_group_coord <- read_csv("Z:/THCIC/Katz/TX_block_group_centroids.csv",  
                               col_types = cols("GEOID" =col_character(),
                                                "lat" = col_double(),
                                                "lon" = col_double()))
@@ -190,7 +193,7 @@ opa_raw <- left_join(opa_raw, block_group_coord) #names(opa_raw) #names(block_gr
 
 
 ## Using census tract centroids when the block group isn't available but the census tract is (23967 records)
-census_tract_coord <- read_csv("C:/Users/dsk856/Desktop/misc_data/TX_census_tract_centroids.csv",  
+census_tract_coord <- read_csv("Z:/THCIC/Katz/TX_census_tract_centroids.csv",  
                                col_types = cols("GEOID11" =col_character(),
                                                 "lat_tract" = col_double(),
                                                 "lon_tract" = col_double())) %>% 
