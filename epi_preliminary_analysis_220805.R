@@ -27,8 +27,8 @@ rm(list = ls())
 NAB_min_dist_threshold <- 25
 
 # define target age range here 
-age_low <- 5 # >= #young kids = 0, school-aged kids = 5, adults = 18
-age_hi <- 17 # <= #young kids = 5, school-aged kids = 17, adults = 99
+age_low <- 18 # >= #young kids = 0, school-aged kids = 5, adults = 18
+age_hi <- 99 # <= #young kids = 5, school-aged kids = 17, adults = 99
 
 ### load in NAB data and do linear interpolation #####################################################
 # the pollen data are now assembled in 'NAB_data_assembly.R' on github
@@ -343,8 +343,8 @@ c_vars_adults <- c(paste0("B0100", 1007:1025), #males
   gsub(pattern = "B01001", replacement ="B01001_", x = .) #adding the underscore back in
 
 #census_All_2017 <- get_acs(state="TX", geography="block group", year = 2017, variables=All_vars, geometry=FALSE) #takes 5 min
-#write_csv(census_All_2017, "C:/Users/dsk856/Desktop/misc_data/ACS_pop_by_age_2017_200331.csv")
-census_All_2017 <- read_csv("C:/Users/dsk856/Desktop/misc_data/ACS_pop_by_age_2017_200331.csv",
+#write_csv(census_All_2017, "Z:/THCIC/Katz/ACS_pop_by_age_2017_200331.csv")
+census_All_2017 <- read_csv("Z:/THCIC/Katz/ACS_pop_by_age_2017_200331.csv",
                             col_types = cols("GEOID" =col_character()))
 census_All_2017 <- left_join(census_All_2017, block_group_coord) %>% #add in coordinates for each block group
   mutate(lon = lon * -1)
@@ -470,7 +470,7 @@ opa_day <- opa_day %>% ungroup() %>% group_by(NAB_station) %>% arrange(NAB_stati
 
 #making sure the population is set for the correct age group. 
 #WARNING: BE CAUTIOUS IF NOT USING THE EXACT AGEGROUPS
-if(age_hi < 5){opa_day_agegroup_x <- mutate(opa_day, agegroup_x_pop = young_kids_pop)} #PIBR per 1,000,000 
+if(age_hi < 6){opa_day_agegroup_x <- mutate(opa_day, agegroup_x_pop = young_kids_pop)} #PIBR per 1,000,000 
 if(age_hi == 17){opa_day_agegroup_x <- mutate(opa_day, agegroup_x_pop = schoolkids_pop)} #PIBR per 1,000,000 
 if(age_hi > 90){opa_day_agegroup_x <- mutate(opa_day, agegroup_x_pop = adult_pop)} #PIBR per 1,000,000 
 
@@ -484,9 +484,9 @@ write_csv(opa_day_agegroup_x, csv_file_name)
 #summary(opa_day_agegroup_x)
 
 ### exploring data ###################################################
-# opa_day <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_ages_5_17_25km_201008.csv", guess_max = 8260)
-# opa_day_adult <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_ages_18_99_25km_201008.csv", guess_max = 8260)
-# opa_day_youngchildren <- read_csv("C:/Users/dsk856/Desktop/thcic_analysis/opa_day_ages_0_4_25km_210524.csv", guess_max = 8260)
+# opa_day <- read_csv("Z:/THCIC/Katz/opa_day_ages_5_17_dist_25_2022-08-09.csv", guess_max = 8260)
+# opa_day_adult <- read_csv("Z:/THCIC/Katz/opa_day_ages_18_99_dist_25_2022-08-09.csv", guess_max = 8260)
+# opa_day_youngchildren <- read_csv("Z:/THCIC/Katz/opa_day_ages_0_5_dist_25_2022-08-09.csv", guess_max = 8260)
 
 ### fig 2: time series of each var ############################################################
 names(opa_day)
@@ -533,7 +533,8 @@ panel_ed_adult <-
   ggplot(aes(x = date, y = pbir, col = NAB_station)) + theme_few() +
   geom_line(aes(x = date, y=rollmean((pbir ), 7, na.pad=TRUE)), alpha = 0.3) +
   geom_line(data = pbir_global_mean_adult, aes(x = date, y = rollmean(pbir_global_mean, 7, na.pad=TRUE)), col = "black") +
-  coord_cartesian(ylim = c(0, 0.12)) +  scale_color_grey(name = "NAB station") +
+  #Pcoord_cartesian(ylim = c(0, 0.12)) +  
+  scale_color_grey(name = "NAB station") +
   ylab("Asthma ED \n visits \n (per 10,000)") +
   theme(strip.text.x = element_blank(),
         strip.background = element_rect(colour="white", fill="white"),
@@ -571,22 +572,23 @@ panel_pol_other <-  opa_day %>%
 #time series for viruses
 panel_vir <-
   opa_day %>% ungroup() %>%
-  mutate(flu_d_perc_pos = flu_d_prop_pos * 100) %>%
-  #        v_tests_adj_pos_Corona_ms = v_tests_adj_pos_Corona_m/130.6684,
-  #        v_tests_adj_pos_Rhinovirus_ms = v_tests_adj_pos_Rhinovirus_m/130.6684 ,
-  #        v_tests_adj_pos_RSV_ms = v_tests_adj_pos_RSV_m/130.6684 ) %>%
-  dplyr::select(date, v_tests_perc_pos_Corona_m, v_tests_perc_pos_Rhinovirus_m, flu_d_perc_pos) %>%
-  pivot_longer(cols = c(v_tests_perc_pos_Corona_m, v_tests_perc_pos_Rhinovirus_m , flu_d_perc_pos),
+  mutate(RSV_d_perc_pos = v_pos_prop_RSV_m * 100,
+         corona_d_perc_pos = v_pos_prop_corona_m * 100,
+         rhino_d_perc_pos = v_pos_prop_rhino_m * 100,
+         flu_d_perc_pos = v_pos_prop_flu_m * 100) %>%
+  
+  # dplyr::select(date, RSV_d_perc_pos, corona_d_perc_pos, rhino_d_perc_pos, flu_d_perc_pos ) %>%
+  pivot_longer(cols = c(RSV_d_perc_pos, corona_d_perc_pos , rhino_d_perc_pos, flu_d_perc_pos),
                names_to = "virus_type", values_to = "positive_tests") %>%
-  distinct() %>%
+  # distinct() %>%
   #filter(date > mdy("10 - 31 - 2015")) %>%
-  arrange(virus_type, date) %>%
+  #arrange(virus_type, date) %>%
   ggplot(aes(x = date, y = positive_tests, color = virus_type)) + theme_few() +
   geom_step() + #geom_point() +
   ylab(expression(atop("positive tests", "(%)"))) +
-  scale_color_viridis_d(breaks = c("flu_d_perc_pos", "v_tests_perc_pos_Corona_m", "v_tests_perc_pos_Rhinovirus_m"), 
+  scale_color_viridis_d(breaks = c("flu_d_perc_pos", "corona_d_perc_pos", "rhino_d_perc_pos", "RSV_d_perc_pos"), 
                         option = "viridis",
-                        labels = c("Influenza" ,"Seasonal coronavirus", "Rhinovirus"), name = "virus type") +
+                        labels = c("Influenza" ,"Seasonal coronavirus", "Rhinovirus", "RSV"), name = "virus type") +
   theme(strip.text.x = element_blank(),
         strip.background = element_rect(colour="white", fill="white"),
         legend.position= "none")#c(0.75, 0.75))
