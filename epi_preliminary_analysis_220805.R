@@ -197,7 +197,7 @@ census_tract_coord <- read_csv("Z:/THCIC/Katz/TX_census_tract_centroids.csv",
                                col_types = cols("GEOID11" =col_character(),
                                                 "lat_tract" = col_double(),
                                                 "lon_tract" = col_double())) %>% 
-  rename(PAT_ADDR_CENSUS_BLOCK_GROUP_c = GEOID11)
+                        rename(PAT_ADDR_CENSUS_BLOCK_GROUP_c = GEOID11)
 opa_raw <- left_join(opa_raw, census_tract_coord) #names(opa_raw) #names(block_group_coord)
 #test <- filter(opa_raw, is.na(lon) & !is.na(lon_tract))
 
@@ -255,6 +255,7 @@ NAB_tx_sf <- NAB_tx %>%
   distinct() %>%
   #filter(NAB_station != "") %>% #not sure how this made its way in, maybe a floating decimal?
   filter(!is.na(Lat)) %>% #not sure how this made its way in
+  as.data.frame() %>% 
   st_as_sf(coords = c("Long", "Lat"), crs = 4326)  %>%
   st_transform(crs = 26914)  #UTM 14 N
 
@@ -276,7 +277,8 @@ opa <- opa_raw %>%
   filter(NAB_min_dist < NAB_min_dist_threshold) %>% #restrict cases to patients whose residence was within 25 km of a station
   #filter(opa_raw, PAT_COUNTY %in% NAB_counties)  %>% #Travis county number is 453
   mutate(PAT_AGE_YEARS = as.numeric(PAT_AGE_YEARS), 
-         PAT_AGE_DAYS = as.numeric(PAT_AGE_DAYS)) %>%
+         PAT_AGE_DAYS = as.numeric(PAT_AGE_DAYS),
+         date = ymd(STMT_PERIOD_FROM)) %>%
   dplyr::select(SEX_CODE, PAT_ZIP, PAT_AGE_YEARS, PAT_AGE_DAYS, RACE, ETHNICITY, PRINC_DIAG_CODE, PAT_ADDR_CENSUS_BLOCK_GROUP, PAT_ADDR_CENSUS_BLOCK,
                 PAT_COUNTY, PAT_AGE_GROUP, date, NAB_min_dist, NAB_station, lon_imp, lat_imp) 
 # opa %>% #sample_frac(0.1) %>%
@@ -292,7 +294,7 @@ opa <- opa_raw %>%
 
 
 # make sure that dates with no cases have zeros instead of missing from list
-day_list <- seq(mdy("9/1/2015"), mdy("12/31/2017"), by = "1 day") #as.data.frame( seq(mdy("9/1/2015"), mdy("12/31/2017"), by = "1 day"))
+day_list <- seq(mdy("9/1/2015"), mdy("12/31/2020"), by = "1 day") #as.data.frame( seq(mdy("9/1/2015"), mdy("12/31/2017"), by = "1 day"))
 NAB_list <- unique(opa$NAB_station)
 day_NAB_list <- expand.grid(day_list, NAB_list)
 names(day_NAB_list) <- c("date", "NAB_station")
@@ -390,20 +392,20 @@ pop_near_NAB_adult <- census_All_2017_sf %>% filter(NAB_min_dist_bg < NAB_min_di
 
 
 ### download and extract met data ###############################################################
-# library(daymetr)
-# #start with the pixels of each NAB station
-# NAB_tx_sf_coords <- st_transform(NAB_tx_sf, crs = 4326) %>% mutate(site = NAB_station,
-#                                                                    lat = st_coordinates(.)[,2], long = st_coordinates(.)[,1],
-#                                                                    NAB_station = NULL)
-#                                                                    #geometry = NULL)
-# #test <- download_daymet(lon = NAB_tx_sf_coords$long[1], lat = NAB_tx_sf_coords$lat[1], start =2015, end = 2017, simplify = TRUE)
-# NAB_tx_sf_coords$geometry <- NULL
-# setwd("C:/Users/dsk856/Desktop/misc_data")
+library(daymetr)
+#start with the pixels of each NAB station
+NAB_tx_sf_coords <- st_transform(NAB_tx_sf, crs = 4326) %>% mutate(site = NAB_station,
+                                                                   lat = st_coordinates(.)[,2], long = st_coordinates(.)[,1],
+                                                                   NAB_station = NULL)
+                                                                   #geometry = NULL)
+#test <- download_daymet(lon = NAB_tx_sf_coords$long[1], lat = NAB_tx_sf_coords$lat[1], start =2015, end = 2017, simplify = TRUE)
+NAB_tx_sf_coords$geometry <- NULL
+setwd("Z:/THCIC/Katz/met_data")
 # write_csv(NAB_tx_sf_coords, "NAB_tx_coords.csv")
-# weather_at_stations <- download_daymet_batch(file_location = "NAB_tx_coords.csv", start =2015, end = 2017, simplify = TRUE)
-# write_csv(weather_at_stations, "weather_at_NAB_stations200401.csv")
+# weather_at_stations <- download_daymet_batch(file_location = "NAB_tx_coords.csv", start =2015, end = 2020, simplify = TRUE)
+# write_csv(weather_at_stations, "weather_at_NAB_stations220809.csv")
 # unique(weather_at_stations$measurement)
-weather_at_stations <- read_csv("C:/Users/dsk856/Desktop/misc_data/weather_at_NAB_stations200401.csv")%>% 
+weather_at_stations <- read_csv("Z:/THCIC/Katz/met_data/weather_at_NAB_stations220809.csv")%>% 
   mutate(date = as.Date(paste(year, yday, sep = "-"), "%Y-%j")) %>%
   mutate(measurement = gsub(pattern = ".", replacement = "", x = measurement, fixed = TRUE)) %>%
   dplyr::select(NAB_station = site, date, measurement, value) %>%
@@ -415,38 +417,76 @@ weather_at_stations <- read_csv("C:/Users/dsk856/Desktop/misc_data/weather_at_NA
 ### Virus monitoring data from DHHS #############################################################
 library(imputeTS)
 
-# virus <- read_csv("C:/Users/dsk856/Desktop/misc_data/virus_2015_2017_daily_adj.csv")
-# 
-# #linear interpolation of virus data
-# virus <- virus %>% 
-#   mutate(v_tests_pos_Rhinovirus_ms = as.numeric(scale(na_interpolation(v_tests_pos_Rhinovirus))),
-#          v_tests_pos_RSV_ms = as.numeric(scale(na_interpolation(v_tests_pos_RSV))),
-#          v_tests_pos_Corona_ms = as.numeric(scale(na_interpolation(v_tests_pos_Corona))),
-#          v_tests_perc_pos_Rhinovirus_ms = as.numeric(scale(na_interpolation(v_tests_perc_pos_Rhinovirus))),
-#          v_tests_perc_pos_RSV_ms = as.numeric(scale(na_interpolation(v_tests_perc_pos_RSV))),
-#          v_tests_perc_pos_Corona_ms = as.numeric(scale(na_interpolation(v_tests_perc_pos_Corona))),
-#          v_tests_perc_pos_Rhinovirus_m = na_interpolation(v_tests_perc_pos_Rhinovirus),
-#          v_tests_perc_pos_RSV_m = na_interpolation(v_tests_perc_pos_RSV),
-#          v_tests_perc_pos_Corona_m = na_interpolation(v_tests_perc_pos_Corona),
-#          v_tests_adj_pos_Rhinovirus_m = na_interpolation(adj_pos_Rhinovirus),
-#          v_tests_adj_pos_RSV_m = na_interpolation(adj_pos_RSV),
-#          v_tests_adj_pos_Corona_m = na_interpolation(adj_pos_Corona))
-# #ggplot(virus, aes(x = date, y = v_tests_adj_pos_Rhinovirus_m)) + geom_step() 
+#v <- read_csv("C:/Users/dsk856/Desktop/misc_data/TX NREVSS1516-1718.csv")
+v_orig <- read_csv("Z:/THCIC/Katz/data_viral/TX_NREVSS_2003_2022.csv") 
+#note: there are some rows that have the same city and date but different test info. I am summing them.
+unique(v$City)
+names(v)
 
-v <- read_csv("C:/Users/dsk856/Desktop/misc_data/TX NREVSS1516-1718.csv")
-vs <- v %>% 
-  mutate(dates = mdy(WeekEnding)) %>% 
-  group_by(HSR_REGION, dates) %>% 
-  summarize(RSV_pos = sum(RSVA_POS, RSVB_POS, RSVUNK_POS),
-            RSV_tests = sum(RSV_TEST),
-            RSV_pos_prop = RSV_pos/RSV_tests,
-            CoV_pos = sum(CovNL63Pos, CovOC43Pos, CoV229EPos, CoVUnkPos, na.rm = TRUE),
-            CoV_tests = sum(CoVTest),
-            CoV_pos_prop = CoV_pos/CoV_tests,
-            Rhino_pos = sum(RhinoPos),
-            Rhino_tests = sum(RhinoTest),
-            Rhino_pos_prop = Rhino_pos/Rhino_tests) %>% 
-  filter(HSR_REGION == "PHR 2/3" | HSR_REGION == "PHR 7" |HSR_REGION == "PHR 8" |HSR_REGION == "PHR 6/5S")
+#sum different test types and virus types calculate the percent of positive tests
+v <- v_orig %>% 
+  mutate( dates = mdy(WeekEndingDate)) %>% 
+  rowwise() %>%  
+  mutate(   
+            RSV_pos_t = sum(RSVAPos, RSVBPos, RSVUnkPos, na.rm = TRUE),
+            RSV_tests_t = RSVtest,
+  
+            CoV_pos_t = sum(CoVHKU1Pos, CovNL63Pos, CovOC43Pos, CoV229EPos, CoVUnkPos, na.rm = TRUE),
+            CoV_tests_t = CoVTest,
+         
+            Rhino_pos_t = sum(Rhinopos),
+            Rhino_tests_t = Rhinotest,
+            
+            Flu_pos_t = sum(FluPanAH1N1pos + FluAH1N1pos + FluAH3N2pos + FluAunkpos + FluBpos, na.rm = TRUE),
+            Flu_tests_t = FluTest
+            )  %>% 
+  ungroup() %>% 
+  group_by(City, dates) %>% 
+  summarize(
+    RSV_pos = sum(RSV_pos_t, na.rm = TRUE),
+    RSV_tests = sum(RSV_tests_t, na.rm = TRUE),
+    
+    CoV_pos = sum(CoV_pos_t, na.rm = TRUE),
+    CoV_tests = sum(CoV_tests_t, na.rm = TRUE),
+    
+    Rhino_pos = sum(Rhino_pos_t, na.rm = TRUE),
+    Rhino_tests = sum(Rhino_tests_t, na.rm = TRUE),
+    
+    Flu_pos = sum(Flu_pos_t, na.rm = TRUE, na.rm = TRUE),
+    Flu_tests = sum(Flu_tests_t, na.rm = TRUE, na.rm = TRUE)) %>% 
+  
+  mutate(
+         RSV_pos_prop = RSV_pos/RSV_tests,
+         CoV_pos_prop = CoV_pos/CoV_tests,
+         Rhino_pos_prop = Rhino_pos/Rhino_tests,
+         Flu_pos_prop = Flu_pos/Flu_tests)
+
+
+#add nearby cities together for a more robust metro-region area and then filter to align with NAB data
+
+
+#look for holes in data and fill them in
+
+#calculate moving averages
+
+
+
+
+
+
+
+
+
+
+
+test %>%  filter(City == "San Antonio" | City == "Austin" | City ==  "College Station" |
+                City == "Houston" | City == "Dallas") %>% 
+  filter(dates > mdy("9/1/2015") & dates < mdy("1/1/2021")) %>% 
+  ggplot(aes(x=dates, y = Flu_pos_prop, color = City)) + geom_line() + theme_bw() + facet_wrap(~City)
+
+
+  filter(City == "Austin" | City == "San Antonio" | City == "PHR 8" | City == "PHR 6/5S")
+  #filter(City == "PHR 2/3" | HSR_REGION == "PHR 7" |HSR_REGION == "PHR 8" |HSR_REGION == "PHR 6/5S")
 
 NAB_stations_join <- data.frame(NAB_station = c("San Antonio A", "San Antonio B", "Georgetown", "Waco A", "Waco B",
                                                 "College Station", "Houston", "Dallas","Flower Mound"), 
@@ -647,6 +687,45 @@ nrevss_data4 %>% group_by(NAB_station, date) %>%
   ggplot(aes( x = date, y = value, color = NAB_station)) + geom_step() + facet_wrap(~name, scales = "free_y")  + theme_bw()
 
 
+
+# names(virus_raw)
+# virus_raw <- virus_raw %>% 
+#   mutate(v_tests_pos_Rhinovirus = Rhinopos,
+#          v_tests_given_Rhinovirus = Rhinotest,
+#          v_tests_perc_pos_Rhinovirus = Rhinopos/Rhinotest,
+#          
+#          v_tests_pos_RSV = RSVAPos + RSVBPos + RSVUnkPos,
+#          v_tests_given_RSV = RSVtest,
+#          v_tests_perc_pos_RSV = v_tests_pos_RSV/v_tests_given_RSV,
+#          
+#          v_tests_pos_Corona = CoVHKU1Pos + CovNL63Pos+ CovOC43Pos + CoV229EPos + CoVUnkPos ,
+#          v_tests_given_Corona = CoVTest,
+#          v_tests_perc_pos_Corona = v_tests_pos_Corona/v_tests_given_Corona,
+#          
+#          v_tests_pos_Flu = FluPanAH1N1pos + FluAH1N1pos + FluAH3N2pos + FluAunkpos + FluBpos,
+#          v_tests_given_Flu = FluTest,
+#          v_tests_perc_pos_Flu = v_tests_pos_Flu/v_tests_given_Flu,
+#          
+#            )
+# 
+# 
+# 
+# #linear interpolation of virus data
+# virus <- virus %>%
+#   mutate(v_tests_pos_Rhinovirus_ms = as.numeric(scale(na_interpolation(v_tests_pos_Rhinovirus))),
+#          v_tests_pos_RSV_ms = as.numeric(scale(na_interpolation(v_tests_pos_RSV))),
+#          v_tests_pos_Corona_ms = as.numeric(scale(na_interpolation(v_tests_pos_Corona))),
+#          v_tests_perc_pos_Rhinovirus_ms = as.numeric(scale(na_interpolation(v_tests_perc_pos_Rhinovirus))),
+#          v_tests_perc_pos_RSV_ms = as.numeric(scale(na_interpolation(v_tests_perc_pos_RSV))),
+#          v_tests_perc_pos_Corona_ms = as.numeric(scale(na_interpolation(v_tests_perc_pos_Corona))),
+#          v_tests_perc_pos_Rhinovirus_m = na_interpolation(v_tests_perc_pos_Rhinovirus),
+#          v_tests_perc_pos_RSV_m = na_interpolation(v_tests_perc_pos_RSV),
+#          v_tests_perc_pos_Corona_m = na_interpolation(v_tests_perc_pos_Corona),
+#          v_tests_adj_pos_Rhinovirus_m = na_interpolation(adj_pos_Rhinovirus),
+#          v_tests_adj_pos_RSV_m = na_interpolation(adj_pos_RSV),
+#          v_tests_adj_pos_Corona_m = na_interpolation(adj_pos_Corona))
+# #ggplot(virus, aes(x = date, y = v_tests_adj_pos_Rhinovirus_m)) + geom_step()
+
 ### load in flu data ###############################################################################
 # #downloaded via CDCfluview package, script is here: https://github.com/dankatz/TX_epi/blob/master/cdc_flu_data_acquisition191111.R
 # flu <- read.csv("C:/Users/dsk856/Desktop/misc_data/flu_daily_200916.csv") %>% 
@@ -664,6 +743,10 @@ nrevss_data4 %>% group_by(NAB_station, date) %>%
 # #summary(flu)
 # # flu %>% filter(date > mdy("10-31-2015") & date < mdy("01-01-2018")) %>%
 # # ggplot(aes(x = date, y = flu_d_prop_pos)) + geom_step() + theme_bw()
+
+
+
+
 
 ### combine the various datasets ######################################################################
 opa_day <- opa %>% group_by(date, NAB_station) %>% #names(opa) opa$PAT_AGE_YEARS
