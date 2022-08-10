@@ -484,7 +484,7 @@ write_csv(opa_day_agegroup_x, csv_file_name)
 #summary(opa_day_agegroup_x)
 
 ### exploring data ###################################################
-# opa_day <- read_csv("Z:/THCIC/Katz/opa_day_ages_5_17_dist_25_2022-08-09.csv", guess_max = 8260)
+# opa_day_schoolchildren <- read_csv("Z:/THCIC/Katz/opa_day_ages_5_17_dist_25_2022-08-09.csv", guess_max = 8260)
 # opa_day_adult <- read_csv("Z:/THCIC/Katz/opa_day_ages_18_99_dist_25_2022-08-09.csv", guess_max = 8260)
 # opa_day_youngchildren <- read_csv("Z:/THCIC/Katz/opa_day_ages_0_5_dist_25_2022-08-09.csv", guess_max = 8260)
 
@@ -501,24 +501,25 @@ panel_ed_youngchild <-
   ggplot(aes(x = date, y = pbir, col = NAB_station)) + theme_few() +
   geom_line(aes(x = date, y=rollmean((pbir ), 7, na.pad=TRUE)), alpha = 0.3) +
   geom_line(data = pbir_global_mean_youngchild, aes(x = date, y = rollmean(pbir_global_mean, 7, na.pad=TRUE)), col = "black") +
-  coord_cartesian(ylim = c(0, 0.5)) +  scale_color_grey(name = "NAB station") +
-  ylab("Asthma ED \n visits \n (per 10,000)") +
+  coord_cartesian(ylim = c(0, 70)) +  
+  scale_color_grey(name = "NAB station") +
+  ylab("Asthma ED \n visits \n (per 1,000,000)") +
   theme(strip.text.x = element_blank(),
         strip.background = element_rect(colour="white", fill="white"),
         legend.position= "none",
         axis.title.x=element_blank(), axis.text.x=element_blank())
 
 #time series for ED visits: school aged children
-pbir_global_mean <- opa_day %>% #the average across all the study areas
+pbir_global_mean <- opa_day_schoolchildren %>% #the average across all the study areas
   group_by(date) %>%
   summarize(pbir_global_mean = mean(pbir))
 panel_ed <-
-  opa_day %>%
+  opa_day_schoolchildren %>%
   ggplot(aes(x = date, y = pbir, col = NAB_station)) + theme_few() +
   geom_line(aes(x = date, y=rollmean((pbir ), 7, na.pad=TRUE)), alpha = 0.3) +
   geom_line(data = pbir_global_mean, aes(x = date, y = rollmean(pbir_global_mean, 7, na.pad=TRUE)), col = "black") +
-  coord_cartesian(ylim = c(0, 0.55)) +  scale_color_grey() +
-  ylab("Asthma ED \n visits \n (per 10,000)") +
+  coord_cartesian(ylim = c(0, 55)) +  scale_color_grey() +
+  ylab("Asthma ED \n visits \n (per 1,000,000)") +
   theme(strip.text.x = element_blank(),
         strip.background = element_rect(colour="white", fill="white"),
         legend.position= "none",axis.title.x=element_blank(), axis.text.x=element_blank())
@@ -533,9 +534,9 @@ panel_ed_adult <-
   ggplot(aes(x = date, y = pbir, col = NAB_station)) + theme_few() +
   geom_line(aes(x = date, y=rollmean((pbir ), 7, na.pad=TRUE)), alpha = 0.3) +
   geom_line(data = pbir_global_mean_adult, aes(x = date, y = rollmean(pbir_global_mean, 7, na.pad=TRUE)), col = "black") +
-  #Pcoord_cartesian(ylim = c(0, 0.12)) +  
+  coord_cartesian(ylim = c(0, 18)) +  
   scale_color_grey(name = "NAB station") +
-  ylab("Asthma ED \n visits \n (per 10,000)") +
+  ylab("Asthma ED \n visits \n (per 1,000,000)") +
   theme(strip.text.x = element_blank(),
         strip.background = element_rect(colour="white", fill="white"),
         legend.position= "none",
@@ -602,7 +603,7 @@ ts_panels <- cowplot::plot_grid(panel_ed_youngchild, panel_ed, panel_ed_adult,
                                 label_size = 11,
                                 label_x = 0.17, label_y = 0.8,
                                 hjust = 0, vjust = 0)
-ggsave(file = "C:/Users/dsk856/Desktop/thcic_analysis/time_series_fig_201008.jpg", plot = ts_panels,
+ggsave(file = "Z:/THCIC/Katz/results/time_series_fig_220810.jpg", plot = ts_panels,
        height =20, width = 17, units = "cm", dpi = 300)
 
 

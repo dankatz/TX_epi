@@ -6,12 +6,11 @@ library(dplyr)
 library(tidyr)
 library(readr)
 library(tibble)
-#library(tidyverse)
 library(purrr)
 library(lubridate)
 library(stringr)
 library(ggplot2)
-
+#library(tidyverse)
 
 ### extract data from 2019 to 2021 data request ###########################################################
 ### set working directory to folder with all of the NAB files in original NAB format
@@ -92,7 +91,7 @@ unique(nab2019_2021_tx$NAB_station)
 
 names(nab2019_2021_tx)
 names(nab2009_2019_tx)
-
+C
 nab2009_2019_tx_join <- nab2009_2019_tx %>% dplyr::select(-"...1",-date, -city, -state, -site2, -lat, -long, -file)
 nab2019_2021_tx_join <- nab2019_2021_tx %>% dplyr::select(-Station.ID, -Station.Name, - Station.City, -Station.State, - Station.Postal.Code, -Station.Country, -file)
 
