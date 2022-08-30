@@ -13,6 +13,7 @@ library(zoo)
 library(ggthemes)
 library(tidyr)
 library(dplyr)
+library(cowplot)
 
 #rm(list = ls())
 
@@ -21,6 +22,29 @@ library(dplyr)
 opa_day_schoolchildren <- read_csv("Z:/THCIC/Katz/opa_day_ages_5_17_dist_25_2022-08-10.csv", guess_max = 8260)
 opa_day_adult <- read_csv("Z:/THCIC/Katz/opa_day_ages_18_99_dist_25_2022-08-10.csv", guess_max = 8260)
 opa_day_youngchildren <- read_csv("Z:/THCIC/Katz/opa_day_ages_0_4_dist_25_2022-08-10.csv", guess_max = 8260)
+
+
+### table 1: summary of AREDV by site #########################################################
+opa_day_youngchildren %>% 
+  group_by(NAB_station) %>% 
+  summarize( pop_mean = mean(young_kids_pop),
+               pbir_mean = mean(pbir),
+             aredv_total = sum (n_cases))
+
+opa_day_schoolchildren %>% 
+  group_by(NAB_station) %>% 
+  summarize( pop_mean = mean(schoolkids_pop),
+             pbir_mean = mean(pbir),
+             aredv_total = sum (n_cases))
+
+
+opa_day_adult %>% 
+  group_by(NAB_station) %>% 
+  summarize( pop_mean = mean(adult_pop),
+             pbir_mean = mean(pbir),
+             aredv_total = sum (n_cases))
+
+
 
 ### fig 2: time series of each var ############################################################
 names(opa_day_schoolchildren)

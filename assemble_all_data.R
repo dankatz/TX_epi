@@ -70,6 +70,8 @@ block_group_coord <- read_csv("Z:/THCIC/Katz/TX_block_group_centroids.csv",
                                                "lon" = col_double()))
 
 opa_raw <- left_join(opa_raw, block_group_coord) #names(opa_raw) #names(block_group_coord)#summary(opa_raw$lat) #
+head(opa_raw)
+test <- slice_sample(opa_raw, n = 100)
 
 ## Using census tract centroids when the block group isn't available but the census tract is (23967 records)
 census_tract_coord <- read_csv("Z:/THCIC/Katz/TX_census_tract_centroids.csv",  
@@ -109,10 +111,17 @@ opa_raw <- left_join(opa_raw, zipcode2) %>%
 # test <- opa_raw %>% mutate(nchar_geoid = nchar(GEOID10)) %>% filter(nchar_geoid < 14)
 # hist(nchar(opa_raw$GEOID10))
 
+#how many records didn't have the block group but did have the census tract
+length(opa_raw$RECORD_ID[is.na(opa_raw$lon) & !is.na(opa_raw$lon_tract)]) / nrow(opa_raw)
+
+#how many records didn't have the census tract but did have zip
+length(opa_raw$RECORD_ID[is.na(opa_raw$lon) & is.na(opa_raw$lon_tract) & !is.na(opa_raw$lat_zip)]) / nrow(opa_raw)
+
+
 #how many records in each group
-# test <- filter(opa_raw, is.na(lon) ) #28817/277232   
+# test <- filter(opa_raw, is.na(lon) ) #51340/586828   
 # test <- filter(opa_raw, is.na(lon) & !is.na(lon_tract) ) #23967/277232
-# test <- filter(opa_raw, is.na(lon) & is.na(lon_tract) & !is.na(lon_zip)) #4662/277232 #188/277232
+# test <- filter(opa_raw, is.na(lon) & is.na(lon_tract) & !is.na(lon_zip)) #4662/277232 #188/277232 #27011/
 
 # some graphical checks
 # opa_raw %>% sample_n(10000) %>%
