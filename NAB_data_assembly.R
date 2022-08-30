@@ -13,8 +13,9 @@ library(ggplot2)
 library(here)
 library(imputeTS)
 #library(tidyverse)
+library(ggthemes)
 
-setwd("C:/Users/danka/Box")
+setwd("C:/Users/dsk273/Box")
 here::i_am("katz_photo.jpg")
 
 
@@ -239,7 +240,57 @@ NAB_tx %>%
 write_csv(NAB_tx, here("texas", "NAB", "NAB2009_2021_tx_epi_pollen_220810_c.csv"))
 
 
-### assess how good of a job the linear interpolation does ######################
+#some stats for paper
+#amount of missing data per station
+NAB_tx %>% 
+  filter(date > mdy("10-1-2015") & date < mdy("1/1/21")) %>% 
+  group_by(NAB_station) %>% 
+  mutate(missing_pollen_data = case_when(is.na(Cupressaceae) | is.na(trees) | is.na(pol_other) ~ 1,
+                                         !is.na(Cupressaceae) & !is.na(trees) & !is.na(pol_other) ~ 0)) %>% 
+  summarize(mean_missing = mean(missing_pollen_data)) %>% 
+  arrange(mean_missing)
+
+#last date of data provided
+date_end <- NAB_tx %>% 
+  filter(date > mdy("10-1-2015") & date < mdy("1/1/21")) %>% 
+  group_by(NAB_station) %>% 
+  mutate(missing_pollen_data = case_when(is.na(Cupressaceae) | is.na(trees) | is.na(pol_other) ~ 1,
+                                         !is.na(Cupressaceae) & !is.na(trees) & !is.na(pol_other) ~ 0)) %>% 
+  filter(missing_pollen_data == 0) %>% 
+  slice_max(date) %>% 
+  mutate(date_end = date + 1) %>% 
+  dplyr::select(date_end, NAB_station)
+
+#amount of missing data per station not in the truncate period
+left_join(NAB_tx, date_end) %>% 
+  filter(date > mdy("10-1-2015") & date < mdy("1/1/21")) %>% 
+  filter(date < date_end) %>% 
+  group_by(NAB_station) %>% 
+  mutate(missing_pollen_data = case_when(is.na(Cupressaceae) | is.na(trees) | is.na(pol_other) ~ 1,
+                                         !is.na(Cupressaceae) & !is.na(trees) & !is.na(pol_other) ~ 0)) %>% 
+  summarize(mean_missing = mean(missing_pollen_data))  %>% 
+  arrange(mean_missing)
+
+
+### a figure of linear interpolated data  #####################################################
+library(zoo)
+NAB_tx %>%
+  filter(date > mdy("10-1-2015") & date < mdy("1/1/21")) %>% 
+  rowwise() %>% 
+  mutate(all_pollen = sum(Cupressaceae, trees, pol_other + 1),
+         all_pollen_m = sum(cup_all_m, trees_m, pol_other_m + 1)) %>% 
+  ungroup() %>% 
+  ggplot(aes(x = date, y = all_pollen, group = NAB_station)) + theme_few() + scale_y_log10() +
+  
+  geom_point(aes(x = date, y=all_pollen_m ), color = "red", alpha = 0.3, size = 0.9) +
+  geom_point(aes(x = date, y=all_pollen ), color = "black") +
+  ylab(expression(atop(pollen, (grains/m^3)))) +  xlab("date") +
+  theme(legend.position= "none" ) + #theme(axis.title.x=element_blank(), axis.text.x=element_blank()) + 
+  facet_wrap(~NAB_station)
+
+
+
+### assess how good of a job the linear interpolation does on log 10 data######################
 #select a portion of the data to withhold 
 NAB_tx_withheld <- NAB %>%  #str(NAB_tx)
   ungroup() %>%  #get rid of rowwise
@@ -288,6 +339,54 @@ cowplot::plot_grid(cup_panel, tree_panel, other_panel, labels = c("A", "B", "C")
 
 
 
+
+
+### assess how good of a job the linear interpolation does on untransformed data######################
+#select a portion of the data to withhold 
+NAB_tx_withheld <- NAB %>%  #str(NAB_tx)
+  ungroup() %>%  #get rid of rowwise
+  filter(date > mdy("10/1/2015") & date < mdy("1/1/2021")) %>% 
+  sample_frac(0.1) %>% #withold 10% of data
+  dplyr::select(date, NAB_station) %>% 
+  mutate(withheld = 1)
+NAB_tx_mt <- left_join(NAB, NAB_tx_withheld) %>%  #str(NAB_tx_mt)
+  filter(date > mdy("10/1/2015") & date < mdy("1/1/2021")) %>% 
+  mutate(#withheld2 = case_when(withheld == 1 ~ withheld, is.na(withheld) ~ 0),
+    cup_withheld = case_when(is.na(withheld) ~ Cupressaceae ), #by not specifying a value, it defaults to NA
+    trees_withheld = case_when(is.na(withheld) ~ trees),
+    pol_other_withheld = case_when(is.na(withheld) ~ pol_other)
+  )
+
+#linear interpolation of time series that had extra data removed
+NAB_tx_mt <- NAB_tx_mt %>% 
+  group_by(NAB_station) %>% 
+  mutate(
+    cup_withheld_m = na_interpolation(cup_withheld, maxgap = 7),
+    trees_withheld_m = na_interpolation(trees_withheld, maxgap = 7),
+    pol_other_withheld_m = na_interpolation(pol_other_withheld, maxgap = 7))
+
+NAB_tx_mtc <- filter(NAB_tx_mt, withheld == 1) 
+
+#compare withheld data with linear interp estimates
+cup_mtc_fit <- lm(NAB_tx_mtc$Cupressaceae ~ NAB_tx_mtc$cup_withheld_m )
+sqrt(mean(cup_mtc_fit$residuals^2)); summary(cup_mtc_fit) #RMSE and R2
+cup_panel <- ggplot(NAB_tx_mtc, aes(x= cup_withheld_m - 1, y = Cupressaceae - 1)) + geom_point(alpha = .2) + theme_bw() + #geom_smooth(method = "lm") +
+  geom_abline(slope = 1, lty = 2) +xlab(interpolated~(pollen~grains~per~m^3)) + ylab(observed~(pollen~grains~per~m^3)) +
+  scale_x_log10(limits = c(1, 10000)) + scale_y_log10(limits = c(1, 10000))
+
+trees_mtc_fit <- lm(NAB_tx_mtc$trees ~ NAB_tx_mtc$trees_withheld_m)
+sqrt(mean(trees_mtc_fit$residuals^2)); summary(trees_mtc_fit) #RMSE and R2
+tree_panel <- ggplot(NAB_tx_mtc, aes(x= trees_withheld_m - 1, y = trees - 1)) + geom_point(alpha = .2) + theme_bw() + #geom_smooth(method = "lm") +
+  geom_abline(slope = 1, lty = 2) +xlab(interpolated~(pollen~grains~per~m^3)) + ylab(observed~(pollen~grains~per~m^3)) +
+  scale_x_log10(limits = c(1, 10000)) + scale_y_log10(limits = c(1, 10000))
+
+pol_other_mtc_fit <- lm(NAB_tx_mtc$pol_other ~ NAB_tx_mtc$pol_other_withheld_m)
+sqrt(mean(pol_other_mtc_fit$residuals^2)); summary(pol_other_mtc_fit) #RMSE and R2
+other_panel <- ggplot(NAB_tx_mtc, aes(x= pol_other_withheld_m - 1, y = pol_other - 1)) + geom_point(alpha = .2) + theme_bw() + #geom_smooth(method = "lm") +
+  geom_abline(slope = 1, lty = 2) +xlab(interpolated~(pollen~grains~per~m^3)) + ylab(observed~(pollen~grains~per~m^3)) +
+  scale_x_log10(limits = c(1, 500)) + scale_y_log10(limits = c(1, 500))
+
+cowplot::plot_grid(cup_panel, tree_panel, other_panel, labels = c("A", "B", "C"))
 
 
 
