@@ -14,6 +14,7 @@ library(here)
 library(imputeTS)
 #library(tidyverse)
 library(ggthemes)
+library(zoo)
 
 setwd("C:/Users/dsk273/Box")
 here::i_am("katz_photo.jpg")
@@ -209,10 +210,13 @@ NAB_tx <- NAB %>%
     year_f = paste0("y_", year(date)),
     
     cup_all_m = na_interpolation(Cupressaceae, maxgap = 7),
+    cup_all_m2 = na_interpolation(Cupressaceae, maxgap = 2),
     cup_all_lm = na_interpolation(cup_log10, maxgap = 7),
     trees_m = na_interpolation(trees, maxgap = 7),
+    trees_m2 = na_interpolation(trees, maxgap = 2),
     trees_lm = na_interpolation(trees_log10, maxgap = 7),
     pol_other_m = na_interpolation(pol_other, maxgap = 7),
+    pol_other_m2 = na_interpolation(pol_other, maxgap = 2),
     pol_other_lm = na_interpolation(pol_other_log10, maxgap = 7)
   ) 
 
@@ -237,7 +241,7 @@ NAB_tx %>%
   geom_point(aes(x = date, y = pol_other_log10), color = "black")
 
 
-write_csv(NAB_tx, here("texas", "NAB", "NAB2009_2021_tx_epi_pollen_220810_c.csv"))
+write_csv(NAB_tx, here("texas", "NAB", "NAB2009_2021_tx_epi_pollen_220831.csv"))
 
 
 #some stats for paper
@@ -273,7 +277,6 @@ left_join(NAB_tx, date_end) %>%
 
 
 ### a figure of linear interpolated data  #####################################################
-library(zoo)
 NAB_tx %>%
   filter(date > mdy("10-1-2015") & date < mdy("1/1/21")) %>% 
   rowwise() %>% 
@@ -283,6 +286,19 @@ NAB_tx %>%
   ggplot(aes(x = date, y = all_pollen, group = NAB_station)) + theme_few() + scale_y_log10() +
   
   geom_point(aes(x = date, y=all_pollen_m ), color = "red", alpha = 0.3, size = 0.9) +
+  geom_point(aes(x = date, y=all_pollen ), color = "black") +
+  ylab(expression(atop(pollen, (grains/m^3)))) +  xlab("date") +
+  theme(legend.position= "none" ) + #theme(axis.title.x=element_blank(), axis.text.x=element_blank()) + 
+  facet_wrap(~NAB_station)
+
+NAB_tx %>%
+  filter(date > mdy("10-1-2015") & date < mdy("1/1/21")) %>% 
+  rowwise() %>% 
+  mutate(all_pollen = sum(Cupressaceae, trees, pol_other + 1),
+         all_pollen_m2 = sum(cup_all_m2, trees_m2, pol_other_m2 + 1)) %>% 
+  ungroup() %>% 
+  ggplot(aes(x = date, y = all_pollen, group = NAB_station)) + theme_few() + scale_y_log10() +
+  geom_point(aes(x = date, y=all_pollen_m2 ), color = "red", alpha = 0.3, size = 0.9) +
   geom_point(aes(x = date, y=all_pollen ), color = "black") +
   ylab(expression(atop(pollen, (grains/m^3)))) +  xlab("date") +
   theme(legend.position= "none" ) + #theme(axis.title.x=element_blank(), axis.text.x=element_blank()) + 
@@ -391,6 +407,53 @@ cowplot::plot_grid(cup_panel, tree_panel, other_panel, labels = c("A", "B", "C")
 
 
 
+
+### assess how good of a job the linear interpolation does on untransformed data with a max gap of 2######################
+#select a portion of the data to withhold 
+NAB_tx_withheld <- NAB %>%  #str(NAB_tx)
+  ungroup() %>%  #get rid of rowwise
+  filter(date > mdy("10/1/2015") & date < mdy("1/1/2021")) %>% 
+  sample_frac(0.1) %>% #withold 10% of data
+  dplyr::select(date, NAB_station) %>% 
+  mutate(withheld = 1)
+NAB_tx_mt <- left_join(NAB, NAB_tx_withheld) %>%  #str(NAB_tx_mt)
+  filter(date > mdy("10/1/2015") & date < mdy("1/1/2021")) %>% 
+  mutate(#withheld2 = case_when(withheld == 1 ~ withheld, is.na(withheld) ~ 0),
+    cup_withheld = case_when(is.na(withheld) ~ Cupressaceae ), #by not specifying a value, it defaults to NA
+    trees_withheld = case_when(is.na(withheld) ~ trees),
+    pol_other_withheld = case_when(is.na(withheld) ~ pol_other)
+  )
+
+#linear interpolation of time series that had extra data removed
+NAB_tx_mt <- NAB_tx_mt %>% 
+  group_by(NAB_station) %>% 
+  mutate(
+    cup_withheld_m = na_interpolation(cup_withheld, maxgap = 2),
+    trees_withheld_m = na_interpolation(trees_withheld, maxgap = 2),
+    pol_other_withheld_m = na_interpolation(pol_other_withheld, maxgap = 2))
+
+NAB_tx_mtc <- filter(NAB_tx_mt, withheld == 1) 
+
+#compare withheld data with linear interp estimates
+cup_mtc_fit <- lm(NAB_tx_mtc$Cupressaceae ~ NAB_tx_mtc$cup_withheld_m )
+sqrt(mean(cup_mtc_fit$residuals^2)); summary(cup_mtc_fit) #RMSE and R2
+cup_panel <- ggplot(NAB_tx_mtc, aes(x= cup_withheld_m - 1, y = Cupressaceae - 1)) + geom_point(alpha = .2) + theme_bw() + #geom_smooth(method = "lm") +
+  geom_abline(slope = 1, lty = 2) +xlab(interpolated~(pollen~grains~per~m^3)) + ylab(observed~(pollen~grains~per~m^3)) +
+  scale_x_log10(limits = c(1, 10000)) + scale_y_log10(limits = c(1, 10000))
+
+trees_mtc_fit <- lm(NAB_tx_mtc$trees ~ NAB_tx_mtc$trees_withheld_m)
+sqrt(mean(trees_mtc_fit$residuals^2)); summary(trees_mtc_fit) #RMSE and R2
+tree_panel <- ggplot(NAB_tx_mtc, aes(x= trees_withheld_m - 1, y = trees - 1)) + geom_point(alpha = .2) + theme_bw() + #geom_smooth(method = "lm") +
+  geom_abline(slope = 1, lty = 2) +xlab(interpolated~(pollen~grains~per~m^3)) + ylab(observed~(pollen~grains~per~m^3)) +
+  scale_x_log10(limits = c(1, 10000)) + scale_y_log10(limits = c(1, 10000))
+
+pol_other_mtc_fit <- lm(NAB_tx_mtc$pol_other ~ NAB_tx_mtc$pol_other_withheld_m)
+sqrt(mean(pol_other_mtc_fit$residuals^2)); summary(pol_other_mtc_fit) #RMSE and R2
+other_panel <- ggplot(NAB_tx_mtc, aes(x= pol_other_withheld_m - 1, y = pol_other - 1)) + geom_point(alpha = .2) + theme_bw() + #geom_smooth(method = "lm") +
+  geom_abline(slope = 1, lty = 2) +xlab(interpolated~(pollen~grains~per~m^3)) + ylab(observed~(pollen~grains~per~m^3)) +
+  scale_x_log10(limits = c(1, 500)) + scale_y_log10(limits = c(1, 500))
+
+cowplot::plot_grid(cup_panel, tree_panel, other_panel, labels = c("A", "B", "C"))
 
 
 
