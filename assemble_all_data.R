@@ -22,21 +22,35 @@ library(daymetr)
 
 #rm(list = ls())
 
-### options for different data subsets
+#removing Waco B because of data quality issues
 
+### start loop to go through all the distance thresholds ##############################
+dist_threshold_list <- rep(c(10, 25, 50), 3)
+age_low_list <- c(0,0,0, 5,5,5, 18,18,18)
+age_hi_list <- c(4,4,4, 17,17,17, 99,99,99)
+
+for(dist_age in 1:9){
+  print(paste("distance:", dist_threshold_list[dist_age]))
+  print(paste("age low:", age_low_list[dist_age]))
+  print(paste("age hi:", age_hi_list[dist_age]))
+
+
+### options for different data subsets
 # distance cutoff from NAB station
-NAB_min_dist_threshold <- 25
+NAB_min_dist_threshold <- dist_threshold_list[dist_age] #25
 
 # define target age range here 
-age_low <- 5 # >= #young kids = 0, school-aged kids = 5, adults = 18
-age_hi <- 17 # <= #young kids = 5, school-aged kids = 17, adults = 99
+age_low <- age_low_list[dist_age] # 18  # >= #young kids = 0, school-aged kids = 5, adults = 18
+age_hi <-  age_hi_list[dist_age] #99  # <= #young kids = 4, school-aged kids = 17, adults = 99
+
+
 
 ### load in NAB data  #####################################################
 # the pollen data are now assembled and processed in 'NAB_data_assembly.R' on github
 # there is also a 1-week interpolation of missing data 
 # files still need to manually pasted over to the Z drive
-NAB_tx <- read_csv("Z:/THCIC/Katz/data_pollen/NAB2009_2021_tx_epi_pollen_220810_C.csv", guess_max = 92013)
-
+NAB_tx <- read_csv("Z:/THCIC/Katz/data_pollen/NAB2009_2021_tx_epi_pollen_220831.csv", guess_max = 92013)
+NAB_tx <- filter(NAB_tx, NAB_station!= "Waco B")
 
 ### THCIC outpatient data on asthma-related ED visits #####################################################
 # this dataset was created in the 'THCIC_assembly.R' script on github: 
@@ -70,8 +84,8 @@ block_group_coord <- read_csv("Z:/THCIC/Katz/TX_block_group_centroids.csv",
                                                "lon" = col_double()))
 
 opa_raw <- left_join(opa_raw, block_group_coord) #names(opa_raw) #names(block_group_coord)#summary(opa_raw$lat) #
-head(opa_raw)
-test <- slice_sample(opa_raw, n = 100)
+#head(opa_raw)
+#test <- slice_sample(opa_raw, n = 100)
 
 ## Using census tract centroids when the block group isn't available but the census tract is (23967 records)
 census_tract_coord <- read_csv("Z:/THCIC/Katz/TX_census_tract_centroids.csv",  
@@ -296,7 +310,8 @@ weather_at_stations <- read_csv("Z:/THCIC/Katz/met_data/weather_at_NAB_stations2
   mutate(date = as.Date(paste(year, yday, sep = "-"), "%Y-%j")) %>%
   mutate(measurement = gsub(pattern = ".", replacement = "", x = measurement, fixed = TRUE)) %>%
   dplyr::select(NAB_station = site, date, measurement, value) %>%
-  pivot_wider(id_cols = c(NAB_station, date), names_from = measurement, values_from = value, names_prefix = "met_")
+  pivot_wider(id_cols = c(NAB_station, date), names_from = measurement, values_from = value, names_prefix = "met_") %>% 
+  filter(NAB_station != "Waco B")
 #head(weather_at_stations)
 
 
@@ -328,7 +343,7 @@ opa_day <- opa_day %>%  #unique(opa_day$City)
                                       NAB_station == "San Antonio A" ~ "San Antonio",
                                       NAB_station == "San Antonio B" ~ "San Antonio",
                                       NAB_station == "Waco A" ~ "Waco",
-                                      NAB_station == "Waco B" ~ "Waco",
+                                      #NAB_station == "Waco B" ~ "Waco",
                                       TRUE ~ NAB_station)) %>% 
   left_join(., nrevss_data4) #str(nrevss_data4) 
 
@@ -369,3 +384,6 @@ csv_file_name <- paste0("Z:/THCIC/Katz/",
 write_csv(opa_day_agegroup_x, csv_file_name)
 
 #summary(opa_day_agegroup_x)
+
+}### end the distance and agegroup loop
+unique(opa_day_agegroup_x$NAB_station)
