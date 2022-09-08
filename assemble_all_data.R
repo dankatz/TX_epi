@@ -37,13 +37,15 @@ for(dist_age in 1:9){
 
 ### options for different data subsets
 # distance cutoff from NAB station
-NAB_min_dist_threshold <- dist_threshold_list[dist_age] #25
+NAB_min_dist_threshold <- dist_threshold_list[dist_age] 
 
 # define target age range here 
-age_low <- age_low_list[dist_age] # 18  # >= #young kids = 0, school-aged kids = 5, adults = 18
-age_hi <-  age_hi_list[dist_age] #99  # <= #young kids = 4, school-aged kids = 17, adults = 99
+age_low <- age_low_list[dist_age] 
+age_hi <-  age_hi_list[dist_age] 
 
-
+# NAB_min_dist_threshold <- 25
+# age_low <-5  # >= #young kids = 0, school-aged kids = 5, adults = 18
+# age_hi <- 17  # <= #young kids = 4, school-aged kids = 17, adults = 99
 
 ### load in NAB data  #####################################################
 # the pollen data are now assembled and processed in 'NAB_data_assembly.R' on github
@@ -182,7 +184,11 @@ opa <- opa_raw %>%
          PAT_AGE_DAYS = as.numeric(PAT_AGE_DAYS),
          date = ymd(STMT_PERIOD_FROM)) %>%
   dplyr::select(SEX_CODE, PAT_ZIP, PAT_AGE_YEARS, PAT_AGE_DAYS, RACE, ETHNICITY, PRINC_DIAG_CODE, PAT_ADDR_CENSUS_BLOCK_GROUP, PAT_ADDR_CENSUS_BLOCK,
-                PAT_COUNTY, PAT_AGE_GROUP, date, NAB_min_dist, NAB_station, lon_imp, lat_imp) 
+                PAT_COUNTY, PAT_AGE_GROUP, date, NAB_min_dist, NAB_station, lon_imp, lat_imp) %>% 
+  mutate(school_metro_area = case_when(NAB_station == "San Antonio A" ~ "San Antonio", #this part needs to be before school section
+                                                              NAB_station == "San Antonio B" ~ "San Antonio",
+                                                              NAB_station == "Waco A" ~ "Waco",
+                                                              TRUE ~ NAB_station))
 # opa %>% #sample_frac(0.1) %>%
 # ggplot(aes(x= lon_imp, y = lat_imp, color = NAB_station)) + geom_point(alpha = 0.03) + theme_bw() + xlab("longitude") + ylab("latitude") +
 #   guides(color = guide_legend(override.aes = list(alpha =1)))
@@ -323,6 +329,74 @@ nrevss_data4 <- read_csv("Z:/THCIC/Katz/data_viral/TX_NREVSS_processed_220810.cs
 unique(nrevss_data4$viral_metro_area)
 
 
+
+### adding in school calendars; will need to eventually move this over to data assembly script ###########################
+school <- read_csv("Z:/THCIC/Katz/data_viral/tx_school_calendars_2015_2020_long.csv") %>% 
+  mutate_at(., vars(contains("break_")), mdy)
+
+# #some data vis for QA/QC using the original wide version
+# school %>% 
+#   ggplot(aes(x = summer_break_start, xmin = summer_break_start, xmax = summer_break_end, y = viral_metro_area, color = year )) + geom_pointrange() +
+#   facet_wrap(~year, scales = "free")
+
+#all school_metro_areas x date grid
+#unique(school$school_metro_area)
+study_date_list <- seq(mdy("9-1-2015"),mdy("1-1-2021"), by = "days")
+school_metro_date_grid <- expand.grid(date = study_date_list, school_metro_area = unique(school$school_metro_area))
+
+#having a hard time doing this within groups, so I'm running it separately for each metro area
+school_metro_areas <- unique(school$school_metro_area)
+
+for(i in 1:length(school_metro_areas)){
+  focal_metro <- school_metro_areas[i]  #focal_metro <- school_metro_areas[1]
+  
+  school_breaks <- school %>% 
+    filter(school_metro_area == focal_metro) %>% 
+    transmute(sbreaks = interval(break_start, break_end))  %>% 
+    as.list() 
+  
+  date_df <- school_metro_date_grid %>% 
+    filter(school_metro_area == focal_metro)
+  
+  output_metro <- date_df %>% 
+    rowwise() %>% 
+    mutate(on_break_raw = any(date %within% school_breaks),
+           on_break = case_when(on_break_raw == TRUE ~ 1,
+                                on_break_raw == FALSE ~ 0)) #any(date_df$date[70] %within% school_breaks)
+  
+  if(i == 1){all_metros <- output_metro}else{all_metros <- bind_rows(all_metros, output_metro)}
+}
+
+# #visual check
+# all_metros %>% ungroup() %>% 
+#   filter(date < mdy("10/1/16")) %>% 
+# ggplot(aes(x = date, y = on_break )) + geom_line() + facet_wrap(~viral_metro_area)
+
+#creating a few derived variables including days since summer and winter breaks (possible effect times are roughly based on calendars and Eggo's paper)
+school_breaks_join <- 
+  all_metros %>% ungroup() %>% 
+  dplyr::select(-on_break_raw) %>% 
+  mutate(last_date_on_holiday = case_when(date == mdy("10/1/2015") ~ mdy("8/25/2015"),
+                                          on_break == 1 ~ date)) %>% 
+  fill(last_date_on_holiday) %>% 
+  mutate(days_since_holiday = as.numeric(date - last_date_on_holiday),
+         doy = yday(date),
+         days_since_win_break = case_when(doy < 28 ~ days_since_holiday,
+                                          doy >= 28 ~ 28),
+         days_since_win_break = case_when(days_since_win_break == 0 ~ 29, TRUE ~ days_since_win_break),
+         days_since_sum_break = case_when(doy > 213  & doy < 274 ~ days_since_holiday,
+                                          TRUE ~ 28),
+         days_since_sum_break = case_when(days_since_sum_break == 0 ~ 29,
+                                          days_since_sum_break > 28 ~ 28, TRUE ~ days_since_sum_break)) %>% 
+  dplyr::select(-doy, -last_date_on_holiday) %>% 
+  distinct() #getting rid of duplicates caused by multiple cities being in the same viral metro area
+
+
+#test2 <- school_breaks_join  %>% dplyr::select(school_metro_area, date) %>% count( school_metro_area, date)
+
+
+
+
 ### combine the various datasets ######################################################################
 opa_day <- opa %>% group_by(date, NAB_station) %>% #names(opa) opa$PAT_AGE_YEARS
   filter(between(PAT_AGE_YEARS, age_low, age_hi)) %>% #for adults
@@ -340,6 +414,7 @@ opa_day <- left_join(opa_day, pop_near_NAB_adult)
 
 opa_day <- opa_day %>%  #unique(opa_day$City)
   mutate(viral_metro_area = case_when(NAB_station == "Dallas" ~ "Dallas/FlowerMound",
+                                      NAB_station == "Flower Mound" ~ "Dallas/FlowerMound",
                                       NAB_station == "San Antonio A" ~ "San Antonio",
                                       NAB_station == "San Antonio B" ~ "San Antonio",
                                       NAB_station == "Waco A" ~ "Waco",
@@ -358,6 +433,15 @@ opa_day <- opa_day %>% ungroup() %>% group_by(NAB_station) %>% arrange(NAB_stati
   mutate(week_day = weekdays(date),
          week_day = forcats::fct_relevel(week_day, "Monday", "Tuesday", "Wednesday", "Thursday", "Friday",
                                          "Saturday", "Sunday"))  %>% filter(date > mdy('9-30-15')) 
+
+
+opa_day <- opa_day  %>% 
+  mutate(school_metro_area = case_when(NAB_station == "San Antonio A" ~ "San Antonio", #this part needs to be before school section
+                                       NAB_station == "San Antonio B" ~ "San Antonio",
+                                       NAB_station == "Waco A" ~ "Waco",
+                                       TRUE ~ NAB_station)) %>% 
+  left_join(., school_breaks_join) 
+
 
 # #for children
 # opa_day <- mutate(opa_day, pbir = ((n_cases/children_pop) * 10000), #PIBR per 10,000 for children
