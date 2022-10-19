@@ -23,6 +23,10 @@ opa_day_youngchildren <- read_csv("Z:/THCIC/Katz/opa_day_ages_0_4_dist_25_2022-0
 opa_day_schoolchildren <- read_csv("Z:/THCIC/Katz/opa_day_ages_5_17_dist_25_2022-08-31.csv", guess_max = 8260)
 opa_day_adult <- read_csv("Z:/THCIC/Katz/opa_day_ages_18_99_dist_25_2022-08-31.csv", guess_max = 8260)
 
+opa_day_youngchildren <- read_csv("Z:/THCIC/Katz/opa_day_ages_0_4_dist_50_2022-08-31.csv", guess_max = 8260)
+opa_day_schoolchildren <- read_csv("Z:/THCIC/Katz/opa_day_ages_5_17_dist_50_2022-08-31.csv", guess_max = 8260)
+opa_day_adult <- read_csv("Z:/THCIC/Katz/opa_day_ages_18_99_dist_50_2022-08-31.csv", guess_max = 8260)
+
 
 ### table 1: summary of AREDV by site #########################################################
 opa_day_youngchildren %>% 
@@ -360,7 +364,7 @@ opa_day <- opa_day_adult
 age_low <- 18 #0, 5, 18
 age_hi <- 99 #4, 17, 99
 
-#needs to be run for each age group
+#mean PBIR for focal age group
 opa_day %>% #group_by(NAB_station) %>% 
   summarize(total_cases = sum(n_cases), PBIR_mean = mean(pbir)) #%>% ungroup() %>%  summarize( total_n = sum (total_cases))
 
@@ -483,27 +487,34 @@ data_for_model %>% group_by(NAB_station, date) %>%
 
 ## dlnm model -----------------------------------------------------------------
 ## set up dlnm crossbasis object for use in glm
-max_lag <- 21
-shape_response <- 3
-shape_lag <- 3
+# shape_response <- 3
+# shape_lag <- 3
+max_lag <- 7
+knots_response_df <- 3
+knots_lag_df <- 1
 
+cup_knots_response <- equalknots(data_for_model$cup_all_m2, fun="ns", df=knots_response_df)
+cup_knots_lag <- equalknots(0:max_lag, fun="ns", df=knots_lag_df)
 cup_lag <- crossbasis(data_for_model$cup_all_m2, lag = max_lag, #log10 transformed & imputed pollen concentration for Cupressaceae
-                        # argvar=list(fun = "lin"), #shape of response curve
-                        # arglag = list(fun = "integer")) #shape of lag
-argvar=list(fun = "poly", degree = shape_response), #shape of response curve
-arglag = list(fun = "poly", degree = shape_lag)) #shape of lag
+                            # argvar=list(fun = "lin"), #shape of response curve
+                            # arglag = list(fun = "integer")) #shape of lag
+                      argvar=list(fun = "ns", knots = cup_knots_response), #shape of response curve
+                      arglag = list(fun = "ns", knots = cup_knots_lag)) #shape of lag
 
+
+trees_knots_response <- equalknots(data_for_model$trees_m2, fun="ns", df=knots_response_df)
+trees_knots_lag <- equalknots(0:max_lag, fun="ns", df=knots_lag_df)
 trees_lag <- crossbasis(data_for_model$trees_m2, lag = max_lag, 
-                          # argvar=list(fun = "lin"), #shape of response curve
-                          # arglag = list(fun = "integer")) #shape of lag
-argvar=list(fun = "poly", degree = shape_response), #shape of response curve
-arglag = list(fun = "poly", degree = shape_lag)) #shape of lag
+                      argvar=list(fun = "ns", knots = trees_knots_response), #shape of response curve
+                      arglag = list(fun = "ns", knots = trees_knots_lag)) #shape of lag
 
+
+pol_other_knots_response <- equalknots(data_for_model$pol_other_m2, fun="ns", df=knots_response_df)
+pol_other_knots_lag <- equalknots(0:max_lag, fun="ns", df=knots_lag_df)
 pol_other_lag <- crossbasis(data_for_model$pol_other_m2, lag = max_lag, 
-                             # argvar=list(fun = "lin"), #shape of response curve
-                             # arglag = list(fun = "integer")) #shape of lag
-argvar=list(fun = "poly", degree = shape_response), #shape of response curve
-arglag = list(fun = "poly", degree = shape_lag)) #shape of lag
+                      argvar=list(fun = "ns", knots = pol_other_knots_response), #shape of response curve
+                      arglag = list(fun = "ns", knots = pol_other_knots_lag)) #shape of lag
+
 
 #viruses in dlnm format for use with attrdl function for AR
 rhino_lag <- crossbasis(data_for_model$v_pos_prop_rhino_m21, lag = 0, #percent of tests positive for rhinovirus
@@ -521,8 +532,8 @@ model1 <- glm(n_cases ~  #number of cases at a station on an observed day
                 NAB_station + #effect of station
                 offset(log(agegroup_x_pop)) +  #offset for the population of a study area
                 on_break +
-                ns(days_since_win_break, df = 4) +
-                ns(days_since_sum_break, df = 4) +
+                ns(days_since_win_break, df = 3) +
+                ns(days_since_sum_break, df = 3) +
                 #bs(days_since_holiday, df = 4) + #
                 cup_lag +  trees_lag + pol_other_lag + #dlnm crossbasis for each pollen type
                 #cup_all_lm + trees_lm + pol_other_lm +
@@ -533,7 +544,7 @@ model1 <- glm(n_cases ~  #number of cases at a station on an observed day
                  # met_vpPa +
                  # met_prcpmmday_ls +
                  # met_tavg_s +  #met_tmindegc_s + #met_vpPa +
-              # met_tmaxdegc_s +
+               met_tmaxdegc_s +
                met_tmindegc_s +
               # met_sradWm2_s + #
               # met_prcp_flag +
@@ -1207,11 +1218,13 @@ attr_f_trees_allyr <- bind_cols(data_for_model, attr_f_df) %>%
   summarize(trees_prop_cases_all_mo = mean(trees_prop_cases_all_mo_r))
 
 
-#prepare for pasting into excel/word
+###prepare for pasting into excel/word
+#Cup
 cup_by_city_jan_wholeyear <- sprintf("%.1f", c(100*attr_f_cup_jan$cup_prop_cases_jan, 
                                                100*attr_f_cup_allyr$cup_prop_cases_all_mo))
 write.table(cup_by_city_jan_wholeyear, "clipboard", sep="\t", row.names=FALSE, col.names=FALSE, quote = FALSE)
 
+#Trees
 trees_by_city_mar_wholeyear <- sprintf("%.1f", c(100*attr_f_trees_mar$trees_prop_cases_mar, 
                                                  100*attr_f_trees_allyr$trees_prop_cases_all_mo))
 write.table(trees_by_city_mar_wholeyear, "clipboard", sep="\t", row.names=FALSE, col.names=FALSE, quote = FALSE)
@@ -1220,23 +1233,26 @@ write.table(trees_by_city_mar_wholeyear, "clipboard", sep="\t", row.names=FALSE,
 
 ### model/Table 2 SI version without viruses ########################################################
 
-model1 <- glm(n_cases ~  #number of cases at a station on an observed day
+model1_novirus <- glm(n_cases ~  #number of cases at a station on an observed day
                 NAB_station + #effect of station
                 offset(log(agegroup_x_pop)) +  #offset for the population of a study area
                 cup_lag +  trees_lag  + pol_other_lag + #dlnm crossbasis for each pollen type
                 on_break +
-                bs(days_since_win_break, df = 4) +
-                bs(days_since_sum_break, df = 4) +
+                ns(days_since_win_break, df = 3) +
+                ns(days_since_sum_break, df = 3) +
+                met_tmaxdegc_s +
+                met_tmindegc_s +
+                ns(time, df = 21) + # spline for season
                 #rhino_lag + corona_lag  + rsv_lag +  flu_lag +
                 week_day, #day of week term
               family = quasipoisson, #quasipoisson
               data = data_for_model)  
 
 # include the 1-day lagged residual in the model
-resid_model1 <- c(rep(NA, max_lag), residuals(model1, type = "deviance"))
-model2 <- update(model1, .~. + tsModel::Lag(resid_model1, 1))  #length(resid_model1) #length(residuals(model1, type = "deviance"))
+resid_model1_novirus <- c(rep(NA, max_lag), residuals(model1_novirus, type = "deviance"))
+model2_novirus <- update(model1_novirus, .~. + tsModel::Lag(resid_model1_novirus, 1))  #length(resid_model1) #length(residuals(model1, type = "deviance"))
 
-table2 <- data.frame(variable = c("Cupressaceae", "Trees", "Other_pollen", "Rhinovirus", "Corona", "RSV",
+table2_no_p_v <- data.frame(variable = c("Cupressaceae", "Trees", "Other_pollen", "Rhinovirus", "Corona", "RSV",
                                   "Influenza"), 
                      yc_n_cases_mean = rep(NA, 7), yc_n_cases_2.5 = rep(NA, 7), yc_n_cases_97.5 = rep(NA, 7),
                      yc_p_cases_mean = rep(NA, 7), yc_p_cases_2.5 = rep(NA, 7), yc_p_cases_97.5 = rep(NA, 7),
@@ -1245,37 +1261,36 @@ table2 <- data.frame(variable = c("Cupressaceae", "Trees", "Other_pollen", "Rhin
                      a_n_cases_mean = rep(NA, 7), a_n_cases_2.5 = rep(NA, 7), a_n_cases_97.5 = rep(NA, 7),
                      a_p_cases_mean = rep(NA, 7), a_p_cases_2.5 = rep(NA, 7), a_p_cases_97.5 = rep(NA, 7))
 
-cup_attr <- attrdl(x = data_for_model$cup_all_m2, basis = cup_lag, cases = data_for_model$n_cases, model = model2, dir = "back", sim = TRUE,
+cup_attr <- attrdl(x = data_for_model$cup_all_m2, basis = cup_lag, cases = data_for_model$n_cases, model = model2_novirus, dir = "back", sim = TRUE,
                    cen = 0, tot = TRUE, type = "an", range = NULL, nsim = 10000)
-table2$yc_n_cases_mean[1] <- sprintf("%.0f", mean(cup_attr))
-table2$yc_n_cases_2.5[1] <- sprintf("%.0f", as.numeric(quantile(cup_attr, probs = 0.025)))
-table2$yc_n_cases_97.5[1] <- sprintf("%.0f", as.numeric(quantile(cup_attr, probs = 0.975)))
-table2$yc_p_cases_mean[1] <- sprintf("%.1f", 100*mean(cup_attr) / sum(model2$fitted.values))
-table2$yc_p_cases_2.5[1] <- sprintf("%.1f", 100*as.numeric(quantile(cup_attr, probs = 0.025))/sum(model2$fitted.values))
-table2$yc_p_cases_97.5[1] <- sprintf("%.1f", 100*as.numeric(quantile(cup_attr, probs = 0.975))/sum(model2$fitted.values))
+table2_no_p_v$yc_n_cases_mean[1] <- sprintf("%.0f", mean(cup_attr))
+table2_no_p_v$yc_n_cases_2.5[1] <- sprintf("%.0f", as.numeric(quantile(cup_attr, probs = 0.025)))
+table2_no_p_v$yc_n_cases_97.5[1] <- sprintf("%.0f", as.numeric(quantile(cup_attr, probs = 0.975)))
+table2_no_p_v$yc_p_cases_mean[1] <- sprintf("%.1f", 100*mean(cup_attr) / sum(model2_novirus$fitted.values))
+table2_no_p_v$yc_p_cases_2.5[1] <- sprintf("%.1f", 100*as.numeric(quantile(cup_attr, probs = 0.025))/sum(model2_novirus$fitted.values))
+table2_no_p_v$yc_p_cases_97.5[1] <- sprintf("%.1f", 100*as.numeric(quantile(cup_attr, probs = 0.975))/sum(model2_novirus$fitted.values))
 
-trees_attr <- attrdl(x = data_for_model$trees_m2, basis = trees_lag, cases = data_for_model$n_cases, model = model2, dir = "back", sim = TRUE,
+trees_attr <- attrdl(x = data_for_model$trees_m2, basis = trees_lag, cases = data_for_model$n_cases, model = model2_novirus, dir = "back", sim = TRUE,
                      cen = 0, tot = TRUE, type = "an", range = NULL, nsim = 10000)
-table2$yc_n_cases_mean[2] <- sprintf("%.0f", mean(trees_attr))
-table2$yc_n_cases_2.5[2] <- sprintf("%.0f", as.numeric(quantile(trees_attr, probs = 0.025)))
-table2$yc_n_cases_97.5[2] <- sprintf("%.0f", as.numeric(quantile(trees_attr, probs = 0.975)))
-table2$yc_p_cases_mean[2] <- sprintf("%.1f", 100* mean(trees_attr) / sum(model2$fitted.values))
-table2$yc_p_cases_2.5[2] <- sprintf("%.1f", 100*as.numeric(quantile(trees_attr, probs = 0.025))/sum(model2$fitted.values))
-table2$yc_p_cases_97.5[2] <- sprintf("%.1f", 100*as.numeric(quantile(trees_attr, probs = 0.975))/sum(model2$fitted.values))
+table2_no_p_v$yc_n_cases_mean[2] <- sprintf("%.0f", mean(trees_attr))
+table2_no_p_v$yc_n_cases_2.5[2] <- sprintf("%.0f", as.numeric(quantile(trees_attr, probs = 0.025)))
+table2_no_p_v$yc_n_cases_97.5[2] <- sprintf("%.0f", as.numeric(quantile(trees_attr, probs = 0.975)))
+table2_no_p_v$yc_p_cases_mean[2] <- sprintf("%.1f", 100* mean(trees_attr) / sum(model2_novirus$fitted.values))
+table2_no_p_v$yc_p_cases_2.5[2] <- sprintf("%.1f", 100*as.numeric(quantile(trees_attr, probs = 0.025))/sum(model2_novirus$fitted.values))
+table2_no_p_v$yc_p_cases_97.5[2] <- sprintf("%.1f", 100*as.numeric(quantile(trees_attr, probs = 0.975))/sum(model2_novirus$fitted.values))
 
-other_pol_attr <- attrdl(x = data_for_model$pol_other_m2, basis = pol_other_lag, cases = data_for_model$n_cases, model = model2, dir = "back", sim = TRUE,
+other_pol_attr <- attrdl(x = data_for_model$pol_other_m2, basis = pol_other_lag, cases = data_for_model$n_cases, model = model2_novirus, dir = "back", sim = TRUE,
                          cen = 0, tot = TRUE, type = "an", range = NULL, nsim = 10000)
-table2$yc_n_cases_mean[3] <- sprintf("%.0f", mean(other_pol_attr))
-table2$yc_n_cases_2.5[3] <- sprintf("%.0f", as.numeric(quantile(other_pol_attr, probs = 0.025)))
-table2$yc_n_cases_97.5[3] <- sprintf("%.0f", as.numeric(quantile(other_pol_attr, probs = 0.975)))
-table2$yc_p_cases_mean[3] <- sprintf("%.1f", 100* mean(other_pol_attr) / sum(model2$fitted.values))
-table2$yc_p_cases_2.5[3] <- sprintf("%.1f", 100*as.numeric(quantile(other_pol_attr, probs = 0.025))/sum(model2$fitted.values))
-table2$yc_p_cases_97.5[3] <- sprintf("%.1f", 100*as.numeric(quantile(other_pol_attr, probs = 0.975))/sum(model2$fitted.values))
-
-table2
+table2_no_p_v$yc_n_cases_mean[3] <- sprintf("%.0f", mean(other_pol_attr))
+table2_no_p_v$yc_n_cases_2.5[3] <- sprintf("%.0f", as.numeric(quantile(other_pol_attr, probs = 0.025)))
+table2_no_p_v$yc_n_cases_97.5[3] <- sprintf("%.0f", as.numeric(quantile(other_pol_attr, probs = 0.975)))
+table2_no_p_v$yc_p_cases_mean[3] <- sprintf("%.1f", 100* mean(other_pol_attr) / sum(model2_novirus$fitted.values))
+table2_no_p_v$yc_p_cases_2.5[3] <- sprintf("%.1f", 100*as.numeric(quantile(other_pol_attr, probs = 0.025))/sum(model2_novirus$fitted.values))
+table2_no_p_v$yc_p_cases_97.5[3] <- sprintf("%.1f", 100*as.numeric(quantile(other_pol_attr, probs = 0.975))/sum(model2_novirus$fitted.values))
+#table2_no_p_v
 
 # version without pollen -------------------------------------------------------
-model1 <- glm(n_cases ~  #number of cases at a station on an observed day
+model1_nopal <- glm(n_cases ~  #number of cases at a station on an observed day
                 NAB_station + #effect of station
                 offset(log(agegroup_x_pop)) +  #offset for the population of a study area
                 #cup_lag +  trees_lag  + pol_other_lag + #dlnm crossbasis for each pollen type
@@ -1288,56 +1303,56 @@ model1 <- glm(n_cases ~  #number of cases at a station on an observed day
               data = data_for_model)  
 
 # include the 1-day lagged residual in the model
-resid_model1 <- c(rep(NA, 0), residuals(model1, type = "deviance"))#for the model version when pollen isn't included
-model2 <- update(model1, .~. + tsModel::Lag(resid_model1, 1))  #length(resid_model1) #length(residuals(model1, type = "deviance"))
+resid_model1_nopal <- c(rep(NA, 0), residuals(model1_nopal, type = "deviance"))#for the model version when pollen isn't included
+model2_nopal <- update(model1_nopal, .~. + tsModel::Lag(resid_model1_nopal, 1))  #length(resid_model1) #length(residuals(model1, type = "deviance"))
 
 #rhinovirus
 rhino_attr <- attrdl(x = data_for_model$v_pos_prop_rhino_m21, basis = rhino_lag, cases = data_for_model$n_cases, 
-                     model = model2, dir = "back", sim = TRUE, cen = 0, tot = TRUE, type = "an", range = NULL, nsim = 10000)
-table2$yc_n_cases_mean[4] <- sprintf("%.0f", mean(rhino_attr))
-table2$yc_n_cases_2.5[4] <- sprintf("%.0f", as.numeric(quantile(rhino_attr, probs = 0.025)))
-table2$yc_n_cases_97.5[4] <- sprintf("%.0f", as.numeric(quantile(rhino_attr, probs = 0.975)))
-table2$yc_p_cases_mean[4] <- sprintf("%.1f", 100*mean(rhino_attr) / sum(model2$fitted.values))
-table2$yc_p_cases_2.5[4] <- sprintf("%.1f", 100*as.numeric(quantile(rhino_attr, probs = 0.025))/sum(model2$fitted.values))
-table2$yc_p_cases_97.5[4] <- sprintf("%.1f", 100*as.numeric(quantile(rhino_attr, probs = 0.975))/sum(model2$fitted.values))
+                     model = model2_nopal, dir = "back", sim = TRUE, cen = 0, tot = TRUE, type = "an", range = NULL, nsim = 10000)
+table2_no_p_v$yc_n_cases_mean[4] <- sprintf("%.0f", mean(rhino_attr))
+table2_no_p_v$yc_n_cases_2.5[4] <- sprintf("%.0f", as.numeric(quantile(rhino_attr, probs = 0.025)))
+table2_no_p_v$yc_n_cases_97.5[4] <- sprintf("%.0f", as.numeric(quantile(rhino_attr, probs = 0.975)))
+table2_no_p_v$yc_p_cases_mean[4] <- sprintf("%.1f", 100*mean(rhino_attr) / sum(model2_nopal$fitted.values))
+table2_no_p_v$yc_p_cases_2.5[4] <- sprintf("%.1f", 100*as.numeric(quantile(rhino_attr, probs = 0.025))/sum(model2_nopal$fitted.values))
+table2_no_p_v$yc_p_cases_97.5[4] <- sprintf("%.1f", 100*as.numeric(quantile(rhino_attr, probs = 0.975))/sum(model2_nopal$fitted.values))
 
 #corona
-corona_attr <- attrdl(x = data_for_model$v_pos_prop_corona_m21, basis = corona_lag, cases = data_for_model$n_cases, model = model2, dir = "back", sim = TRUE,
+corona_attr <- attrdl(x = data_for_model$v_pos_prop_corona_m21, basis = corona_lag, cases = data_for_model$n_cases, model = model2_nopal, dir = "back", sim = TRUE,
                       cen = 0, tot = TRUE, type = "an", range = NULL, nsim = 10000)
-table2$yc_n_cases_mean[5] <- sprintf("%.0f", mean(corona_attr))
-table2$yc_n_cases_2.5[5] <- sprintf("%.0f", as.numeric(quantile(corona_attr, probs = 0.025)))
-table2$yc_n_cases_97.5[5] <- sprintf("%.0f", as.numeric(quantile(corona_attr, probs = 0.975)))
-table2$yc_p_cases_mean[5] <- sprintf("%.1f", 100*mean(corona_attr) / sum(model2$fitted.values))
-table2$yc_p_cases_2.5[5] <- sprintf("%.1f", 100*as.numeric(quantile(corona_attr, probs = 0.025))/sum(model2$fitted.values))
-table2$yc_p_cases_97.5[5] <- sprintf("%.1f", 100*as.numeric(quantile(corona_attr, probs = 0.975))/sum(model2$fitted.values))
+table2_no_p_v$yc_n_cases_mean[5] <- sprintf("%.0f", mean(corona_attr))
+table2_no_p_v$yc_n_cases_2.5[5] <- sprintf("%.0f", as.numeric(quantile(corona_attr, probs = 0.025)))
+table2_no_p_v$yc_n_cases_97.5[5] <- sprintf("%.0f", as.numeric(quantile(corona_attr, probs = 0.975)))
+table2_no_p_v$yc_p_cases_mean[5] <- sprintf("%.1f", 100*mean(corona_attr) / sum(model2_nopal$fitted.values))
+table2_no_p_v$yc_p_cases_2.5[5] <- sprintf("%.1f", 100*as.numeric(quantile(corona_attr, probs = 0.025))/sum(model2_nopal$fitted.values))
+table2_no_p_v$yc_p_cases_97.5[5] <- sprintf("%.1f", 100*as.numeric(quantile(corona_attr, probs = 0.975))/sum(model2_nopal$fitted.values))
 
 #rsv
-rsv_attr <- attrdl(x = data_for_model$v_pos_prop_RSV_m21, basis = rsv_lag, cases = data_for_model$n_cases, model = model2, dir = "back", sim = TRUE,
+rsv_attr <- attrdl(x = data_for_model$v_pos_prop_RSV_m21, basis = rsv_lag, cases = data_for_model$n_cases, model = model2_nopal, dir = "back", sim = TRUE,
                    cen = 0, tot = TRUE, type = "an", range = NULL, nsim = 10000)
-table2$yc_n_cases_mean[6] <- sprintf("%.0f", mean(rsv_attr))
-table2$yc_n_cases_2.5[6] <- sprintf("%.0f", as.numeric(quantile(rsv_attr, probs = 0.025)))
-table2$yc_n_cases_97.5[6] <- sprintf("%.0f", as.numeric(quantile(rsv_attr, probs = 0.975)))
-table2$yc_p_cases_mean[6] <- sprintf("%.1f", 100*mean(rsv_attr) / sum(model2$fitted.values))
-table2$yc_p_cases_2.5[6] <- sprintf("%.1f", 100*as.numeric(quantile(rsv_attr, probs = 0.025))/sum(model2$fitted.values))
-table2$yc_p_cases_97.5[6] <- sprintf("%.1f", 100*as.numeric(quantile(rsv_attr, probs = 0.975))/sum(model2$fitted.values))
+table2_no_p_v$yc_n_cases_mean[6] <- sprintf("%.0f", mean(rsv_attr))
+table2_no_p_v$yc_n_cases_2.5[6] <- sprintf("%.0f", as.numeric(quantile(rsv_attr, probs = 0.025)))
+table2_no_p_v$yc_n_cases_97.5[6] <- sprintf("%.0f", as.numeric(quantile(rsv_attr, probs = 0.975)))
+table2_no_p_v$yc_p_cases_mean[6] <- sprintf("%.1f", 100*mean(rsv_attr) / sum(model2_nopal$fitted.values))
+table2_no_p_v$yc_p_cases_2.5[6] <- sprintf("%.1f", 100*as.numeric(quantile(rsv_attr, probs = 0.025))/sum(model2_nopal$fitted.values))
+table2_no_p_v$yc_p_cases_97.5[6] <- sprintf("%.1f", 100*as.numeric(quantile(rsv_attr, probs = 0.975))/sum(model2_nopal$fitted.values))
 
 
 #flu
-flu_attr <- attrdl(x = data_for_model$v_pos_prop_flu_m21, basis = flu_lag, cases = data_for_model$n_cases, model = model2, dir = "back", sim = TRUE,
+flu_attr <- attrdl(x = data_for_model$v_pos_prop_flu_m21, basis = flu_lag, cases = data_for_model$n_cases, model = model2_nopal, dir = "back", sim = TRUE,
                    cen = 0, tot = TRUE, type = "an", range = NULL, nsim = 10000)
-table2$yc_n_cases_mean[7] <- sprintf("%.0f", mean(flu_attr))
-table2$yc_n_cases_2.5[7] <- sprintf("%.0f", as.numeric(quantile(flu_attr, probs = 0.025)))
-table2$yc_n_cases_97.5[7] <- sprintf("%.0f", as.numeric(quantile(flu_attr, probs = 0.975)))
-table2$yc_p_cases_mean[7] <- sprintf("%.1f", 100*mean(flu_attr) / sum(model2$fitted.values))
-table2$yc_p_cases_2.5[7] <- sprintf("%.1f", 100*as.numeric(quantile(flu_attr, probs = 0.025))/sum(model2$fitted.values))
-table2$yc_p_cases_97.5[7] <- sprintf("%.1f", 100*as.numeric(quantile(flu_attr, probs = 0.975))/sum(model2$fitted.values))
+table2_no_p_v$yc_n_cases_mean[7] <- sprintf("%.0f", mean(flu_attr))
+table2_no_p_v$yc_n_cases_2.5[7] <- sprintf("%.0f", as.numeric(quantile(flu_attr, probs = 0.025)))
+table2_no_p_v$yc_n_cases_97.5[7] <- sprintf("%.0f", as.numeric(quantile(flu_attr, probs = 0.975)))
+table2_no_p_v$yc_p_cases_mean[7] <- sprintf("%.1f", 100*mean(flu_attr) / sum(model2_nopal$fitted.values))
+table2_no_p_v$yc_p_cases_2.5[7] <- sprintf("%.1f", 100*as.numeric(quantile(flu_attr, probs = 0.025))/sum(model2_nopal$fitted.values))
+table2_no_p_v$yc_p_cases_97.5[7] <- sprintf("%.1f", 100*as.numeric(quantile(flu_attr, probs = 0.975))/sum(model2_nopal$fitted.values))
 
 
 #prepare Table 2 for pasting into excel/word
-table2_SI_paste <- data.frame(col1 = paste0(table2$yc_n_cases_mean, " (", table2$yc_n_cases_2.5, " - ", table2$yc_n_cases_97.5, ")"),
-                              col2 = paste0(table2$yc_p_cases_mean, " (", table2$yc_p_cases_2.5, " - ", table2$yc_p_cases_97.5, ")"))
-write.table(table2_SI_paste, "clipboard", sep="\t", row.names=FALSE, col.names=FALSE, quote = FALSE)
-table2_SI_paste
+table2_no_p_v_SI_paste <- data.frame(col1 = paste0(table2_no_p_v$yc_n_cases_mean, " (", table2_no_p_v$yc_n_cases_2.5, " - ", table2_no_p_v$yc_n_cases_97.5, ")"),
+                              col2 = paste0(table2_no_p_v$yc_p_cases_mean, " (", table2_no_p_v$yc_p_cases_2.5, " - ", table2_no_p_v$yc_p_cases_97.5, ")"))
+write.table(table2_no_p_v_SI_paste, "clipboard", sep="\t", row.names=FALSE, col.names=FALSE, quote = FALSE)
+table2_no_p_v_SI_paste
 
 
 
@@ -1348,7 +1363,7 @@ table2_SI_paste
 write.table(table2_paste, "clipboard", sep="\t", row.names=FALSE, col.names=FALSE, quote = FALSE)
 
 #table 2 SI (only pollen or only viruses)
-write.table(table2_SI_paste, "clipboard", sep="\t", row.names=FALSE, col.names=FALSE, quote = FALSE)
+write.table(table2_no_p_v_SI_paste, "clipboard", sep="\t", row.names=FALSE, col.names=FALSE, quote = FALSE)
 
 #effects of pollen during highest month per city
 cup_by_city_jan_wholeyear <- sprintf("%.1f", c(100*attr_f_cup_jan$cup_prop_cases_jan, 100*attr_f_cup_allyr$cup_prop_cases_all_mo))
