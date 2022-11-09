@@ -491,7 +491,7 @@ data_for_model %>% group_by(NAB_station, date) %>%
 # shape_lag <- 3
 max_lag <- 7
 knots_response_df <- 3
-knots_lag_df <- 1
+knots_lag_df <- 2
 
 cup_knots_response <- equalknots(data_for_model$cup_all_m2, fun="ns", df=knots_response_df)
 cup_knots_lag <- equalknots(0:max_lag, fun="ns", df=knots_lag_df)
@@ -544,10 +544,27 @@ model1 <- glm(n_cases ~  #number of cases at a station on an observed day
                  # met_vpPa +
                  # met_prcpmmday_ls +
                  # met_tavg_s +  #met_tmindegc_s + #met_vpPa +
+                
                met_tmaxdegc_s +
                met_tmindegc_s +
               # met_sradWm2_s + #
               # met_prcp_flag +
+                
+                # cup_all_m2*rhino_lag +
+                # trees_m2*rhino_lag +
+                # pol_other_m2*rhino_lag +
+                # 
+                # cup_all_m2*corona_lag +
+                # trees_m2*corona_lag +
+                # pol_other_m2*corona_lag +
+                # 
+                # cup_all_m2*rsv_lag +
+                # trees_m2*rsv_lag +
+                # pol_other_m2*rsv_lag +
+                # 
+                # cup_all_m2*flu_lag +
+                # trees_m2*flu_lag +
+                # pol_other_m2*flu_lag +
               
                #ns(doy, df = 12) + #not including spline anymore
                ns(time, df = 21) + # spline for season
@@ -556,7 +573,7 @@ model1 <- glm(n_cases ~  #number of cases at a station on an observed day
               family = quasipoisson, #quasipoisson
               data = data_for_model)  #names(data_for_model) summary(data_for_model$days_since_sum_break)
 fqaic(model1)
-# summary(model1)
+summary(model1)
 #str(model1)
 
 # include the 1-day lagged residual in the model
