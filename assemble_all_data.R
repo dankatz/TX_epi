@@ -29,7 +29,7 @@ dist_threshold_list <- rep(c(10, 25, 50), 3)
 age_low_list <- c(0,0,0, 5,5,5, 18,18,18)
 age_hi_list <- c(4,4,4, 17,17,17, 99,99,99)
 
-for(dist_age in 1:9){
+for(dist_age in 1:9){ #dist_age <- 1
   print(paste("distance:", dist_threshold_list[dist_age]))
   print(paste("age low:", age_low_list[dist_age]))
   print(paste("age hi:", age_hi_list[dist_age]))
@@ -58,7 +58,7 @@ NAB_tx <- filter(NAB_tx, NAB_station!= "Waco B")
 # this dataset was created in the 'THCIC_assembly.R' script on github: 
 # https://github.com/dankatz/TX_epi/blob/master/THCIC_assembly.R
 
-opa_raw <- read_csv("Z:/THCIC/Katz/op_asthma_2015q4_2020.csv")
+opa_raw <- read_csv("Z:/THCIC/Katz/op_ip_asthma_2015q4_2020.csv")
 #opa_raw$PAT_COUNTY <- sprintf("%03s",opa_raw$PAT_COUNTY) %>% sub(" ", "0",.) %>% sub(" ", "0",.)
 opa_raw <- mutate(opa_raw, PAT_COUNTY = sprintf("%03s", PAT_COUNTY), 
                   PAT_COUNTY = sub(" ", "0", PAT_COUNTY),

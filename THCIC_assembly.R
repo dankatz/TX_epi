@@ -323,3 +323,18 @@ IPTexasAsthma18_20_enc <- IPTexasAsthma18_20_enc %>% mutate(PAT_ADDR_CENSUS_BLOC
 ip_asthma_2015q4_2020 <- bind_rows(IPTexasAsthma18_20_enc, ip_data_2015_2017)
 write_csv(ip_asthma_2015q4_2020, "Z:/THCIC/Katz/ip_asthma_2015q4_2020.csv")
 
+### combining inpatient and outpatient data ############################################################################################
+op_asthma_2015q4_2020 <- read_csv("Z:/THCIC/Katz/op_asthma_2015q4_2020.csv")
+ip_asthma_2015q4_2020 <- read_csv("Z:/THCIC/Katz/ip_asthma_2015q4_2020.csv")
+
+op_asthma_2015q4_2020_join <- op_asthma_2015q4_2020 %>% mutate(ip_op = "op")
+ip_asthma_2015q4_2020_join <- ip_asthma_2015q4_2020 %>% mutate(ip_op = "ip")
+
+names(op_asthma_2015q4_2020_join)
+names(ip_asthma_2015q4_2020_join)
+
+op_ip_asthma_2015q4_2020 <- bind_rows(op_asthma_2015q4_2020_join, ip_asthma_2015q4_2020_join)
+
+write_csv(op_ip_asthma_2015q4_2020, "Z:/THCIC/Katz/op_ip_asthma_2015q4_2020.csv")
+
+#sort(names(test))

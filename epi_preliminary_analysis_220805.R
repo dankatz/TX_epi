@@ -19,13 +19,13 @@ library(cowplot)
 
 
 ### load in data ###################################################
-opa_day_youngchildren <- read_csv("Z:/THCIC/Katz/opa_day_ages_0_4_dist_25_2022-08-31.csv", guess_max = 8260)
-opa_day_schoolchildren <- read_csv("Z:/THCIC/Katz/opa_day_ages_5_17_dist_25_2022-08-31.csv", guess_max = 8260)
-opa_day_adult <- read_csv("Z:/THCIC/Katz/opa_day_ages_18_99_dist_25_2022-08-31.csv", guess_max = 8260)
+opa_day_youngchildren <- read_csv("Z:/THCIC/Katz/opa_day_ages_0_4_dist_25_2022-12-21.csv", guess_max = 8260)
+opa_day_schoolchildren <- read_csv("Z:/THCIC/Katz/opa_day_ages_5_17_dist_25_2022-12-21.csv", guess_max = 8260)
+opa_day_adult <- read_csv("Z:/THCIC/Katz/opa_day_ages_18_99_dist_25_2022-12-21.csv", guess_max = 8260)
 
-opa_day_youngchildren <- read_csv("Z:/THCIC/Katz/opa_day_ages_0_4_dist_50_2022-08-31.csv", guess_max = 8260)
-opa_day_schoolchildren <- read_csv("Z:/THCIC/Katz/opa_day_ages_5_17_dist_50_2022-08-31.csv", guess_max = 8260)
-opa_day_adult <- read_csv("Z:/THCIC/Katz/opa_day_ages_18_99_dist_50_2022-08-31.csv", guess_max = 8260)
+# opa_day_youngchildren <- read_csv("Z:/THCIC/Katz/opa_day_ages_0_4_dist_50_2022-12-21.csv", guess_max = 8260)
+# opa_day_schoolchildren <- read_csv("Z:/THCIC/Katz/opa_day_ages_5_17_dist_50_2022-12-21.csv", guess_max = 8260)
+# opa_day_adult <- read_csv("Z:/THCIC/Katz/opa_day_ages_18_99_dist_50_2022-12-21.csv", guess_max = 8260)
 
 
 ### table 1: summary of AREDV by site #########################################################
@@ -130,7 +130,7 @@ panel_pol_trees <-  opa_day_schoolchildren %>%
   theme(legend.position= "none" ) + theme(axis.title.x=element_blank(), axis.text.x=element_blank()) 
 
 panel_pol_other <-  opa_day_schoolchildren %>%
-  ggplot(aes(x = date, y = pol_other_m + 1, col = NAB_station, group = NAB_station)) + theme_few() + scale_y_log10() +
+  ggplot(aes(x = date, y = pol_other_m + 1, col = NAB_station, group = NAB_station)) + theme_few() + scale_y_log10(limits = c(1,10000)) +
   geom_line(aes(x = date, y=rollmean((pol_other_m + 1), 7, na.pad=TRUE), col = NAB_station, group = NAB_station), alpha = 0.3) +
   ylab(expression(atop(pollen, (grains/m^3)))) + scale_color_grey(name = "NAB station")+ #scale_color_discrete(name = "NAB station") +
   geom_line(data = pol_global_mean, aes(x = date, y = rollmean(pol_other_m_global + 1, 7, na.pad=TRUE), col = NA, group = NA), col = "black") +
@@ -171,7 +171,7 @@ ts_panels <- cowplot::plot_grid(panel_ed_youngchild, panel_ed, panel_ed_adult,
                                 label_size = 11,
                                 label_x = 0.17, label_y = 0.8,
                                 hjust = 0, vjust = 0)
-# ggsave(file = "Z:/THCIC/Katz/results/time_series_fig_220831.jpg", plot = ts_panels,
+# ggsave(file = "Z:/THCIC/Katz/results/time_series_fig_221221.jpg", plot = ts_panels,
 #        height = 24, width = 18, units = "cm", dpi = 300)
 
 
@@ -358,11 +358,11 @@ fqaic <- function(model) {
 }
 
 #opa_day <- opa_day_youngchildren
-#opa_day <- opa_day_schoolchildren
-opa_day <- opa_day_adult
+opa_day <- opa_day_schoolchildren
+#opa_day <- opa_day_adult
 
-age_low <- 18 #0, 5, 18
-age_hi <- 99 #4, 17, 99
+age_low <- 5 #0, 5, 18
+age_hi <- 17 #4, 17, 99
 
 #mean PBIR for focal age group
 opa_day %>% #group_by(NAB_station) %>% 
@@ -532,7 +532,7 @@ model1 <- glm(n_cases ~  #number of cases at a station on an observed day
                 NAB_station + #effect of station
                 offset(log(agegroup_x_pop)) +  #offset for the population of a study area
                 on_break +
-                ns(days_since_win_break, df = 3) +
+                ns(days_since_win_break, df = 5) +
                 ns(days_since_sum_break, df = 3) +
                 #bs(days_since_holiday, df = 4) + #
                 cup_lag +  trees_lag + pol_other_lag + #dlnm crossbasis for each pollen type
@@ -721,13 +721,13 @@ model2 <- update(model1, .~. + tsModel::Lag(resid_model1, 1))  #length(resid_mod
 #   ylab("residual") + xlab("pollen concentration")+ facet_wrap(~NAB_station) + geom_smooth(method = "lm", se = FALSE)
 
 #check on splines
-data_for_model_splines <- data_for_model %>% 
-  mutate()
+# data_for_model_splines <- data_for_model %>% 
+#   mutate()
 
 
 # test <- predict(model2, data_for_model, terms = )
 # str(test)
-?predict
+# ?predict
 
 
 
@@ -1160,14 +1160,15 @@ observed_ncases_t <- data_for_model %>%
 library(scales)
 fig567_ymax <-  ifelse(age_low == 0,   40, #setting figure ymax manually
                        (ifelse(age_low == 5,  55, 
-                               (ifelse(age_low == 18, 10, 
+                               (ifelse(age_low == 18, 11, 
                                        print("error in age_low"))))))
 fig567 <- ggplot(attr_full_df, aes(x = date2, y = (risk_cases / agegroup_x_pop) * 1000000, fill = attr_risk_var)) + 
   facet_wrap(~NAB_station) + geom_area() + theme_bw() + scale_fill_viridis_d(name = "attributable risk") + 
   ylab("asthma-related ED visits (per 1,000,000 people per day)") + xlab("date") +
   scale_x_date(labels = date_format("%b")) + coord_cartesian(ylim = c(0, fig567_ymax)) + #c(-0.01, .15) #c(-0.02, .6)
   geom_step(data = observed_ncases_t, aes( x = date2, y =(mean_cases / agegroup_x_pop) * 1000000, 
-                                           color = "observed cases")) + scale_color_discrete(name = "") 
+                                           color = "observed cases")) + scale_color_discrete(name = "")  +
+  theme(legend.position = c(0.85, 0.17))
 
 #fig567
 fig_567_name <- paste0("Z:/THCIC/Katz/results/",
@@ -1204,7 +1205,7 @@ attr_tf_rsv <- attrdl(x = data_for_model$v_pos_prop_RSV_m21, basis = rsv_lag, ca
 attr_f_df <- data.frame(attr_tf_cup, attr_tf_trees, attr_tf_rhino, attr_tf_corona, attr_tf_flu, attr_tf_rsv) 
 attr_f_df[attr_f_df < 0] <- 0 #removing net protective effects of all variables
 
-### SI table: the percent of AR for each pollen type by each city across the main pollen season ##################
+### Table 3: the percent of AR for each pollen type by each city across the main pollen season ##################
 attr_f_cup_jan <- bind_cols(data_for_model, attr_f_df) %>%
   dplyr::select(date, NAB_station, agegroup_x_pop,  attr_tf_cup) %>%   #attr_t_other_pol,
   mutate(date_month = month(date)) %>%
