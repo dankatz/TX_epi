@@ -18,11 +18,20 @@ library(cowplot)
 #rm(list = ls())
 
 
-### load in data ###################################################
+### load in data ##################################################
+#the standard distance is 25 km; sensitivity analyses for 10 and 50 km
+
+#10 km sensitivity analysis
+# opa_day_youngchildren <- read_csv("Z:/THCIC/Katz/opa_day_ages_0_4_dist_10_2022-12-21.csv", guess_max = 8260)
+# opa_day_schoolchildren <- read_csv("Z:/THCIC/Katz/opa_day_ages_5_17_dist_10_2022-12-21.csv", guess_max = 8260)
+# opa_day_adult <- read_csv("Z:/THCIC/Katz/opa_day_ages_18_99_dist_10_2022-12-21.csv", guess_max = 8260)
+
+#25 km main analysis
 opa_day_youngchildren <- read_csv("Z:/THCIC/Katz/opa_day_ages_0_4_dist_25_2022-12-21.csv", guess_max = 8260)
 opa_day_schoolchildren <- read_csv("Z:/THCIC/Katz/opa_day_ages_5_17_dist_25_2022-12-21.csv", guess_max = 8260)
 opa_day_adult <- read_csv("Z:/THCIC/Katz/opa_day_ages_18_99_dist_25_2022-12-21.csv", guess_max = 8260)
 
+#50 km sensitivity analysis
 # opa_day_youngchildren <- read_csv("Z:/THCIC/Katz/opa_day_ages_0_4_dist_50_2022-12-21.csv", guess_max = 8260)
 # opa_day_schoolchildren <- read_csv("Z:/THCIC/Katz/opa_day_ages_5_17_dist_50_2022-12-21.csv", guess_max = 8260)
 # opa_day_adult <- read_csv("Z:/THCIC/Katz/opa_day_ages_18_99_dist_50_2022-12-21.csv", guess_max = 8260)
@@ -357,12 +366,12 @@ fqaic <- function(model) {
   return(qaic)
 }
 
-#opa_day <- opa_day_youngchildren
-opa_day <- opa_day_schoolchildren
+opa_day <- opa_day_youngchildren
+#opa_day <- opa_day_schoolchildren
 #opa_day <- opa_day_adult
 
-age_low <- 5 #0, 5, 18
-age_hi <- 17 #4, 17, 99
+age_low <- 0 #0, 5, 18
+age_hi <- 4 #4, 17, 99
 
 #mean PBIR for focal age group
 opa_day %>% #group_by(NAB_station) %>% 
@@ -490,7 +499,7 @@ data_for_model %>% group_by(NAB_station, date) %>%
 # shape_response <- 3
 # shape_lag <- 3
 max_lag <- 7
-knots_response_df <- 3
+knots_response_df <- 2
 knots_lag_df <- 2
 
 cup_knots_response <- equalknots(data_for_model$cup_all_m2, fun="ns", df=knots_response_df)
@@ -532,8 +541,8 @@ model1 <- glm(n_cases ~  #number of cases at a station on an observed day
                 NAB_station + #effect of station
                 offset(log(agegroup_x_pop)) +  #offset for the population of a study area
                 on_break +
-                ns(days_since_win_break, df = 5) +
-                ns(days_since_sum_break, df = 3) +
+                ns(days_since_win_break, df = 3) +
+                ns(days_since_sum_break, df = 2) +
                 #bs(days_since_holiday, df = 4) + #
                 cup_lag +  trees_lag + pol_other_lag + #dlnm crossbasis for each pollen type
                 #cup_all_lm + trees_lm + pol_other_lm +
@@ -836,8 +845,7 @@ cup_lag_rr_panel <-
   ggplot(aes(x = pol_conc, y = lag, z = RR, color = RR))  + theme_few() +
   xlab(expression(paste("Cupressaceae (pollen grains / m"^"3",")")))+ #scale_x_log10() +   annotation_logticks(sides = "b")  
   scale_color_viridis_c(option = "plasma", direction = -1, name = "RR") +  geom_point(size = NA) + #for making the discrete legend continuous
-  geom_contour_filled(bins = 99) +  scale_fill_viridis_d(option = "plasma", direction = -1, name = "RR")  + guides(fill = "none")
-
+  geom_contour_filled(bins = 40) +  scale_fill_viridis_d(option = "plasma", direction = -1, name = "RR")  + guides(fill = "none")
 
 
 ## trees #
@@ -906,23 +914,24 @@ pol_other_lag_rr_panel <-
 
 
 #saving the figs 
-fig234 <-
+fig234 <- #?plot_grid
   cowplot::plot_grid(cup_rr_panel, cup_lag_rr_panel,
                      trees_rr_panel, trees_lag_rr_panel,
-                     pol_other_rr_panel, pol_other_lag_rr_panel,
+                    # pol_other_rr_panel, pol_other_lag_rr_panel,
                      ncol = 2, labels = c("  A) Cupressaceae pollen", 
                                           "B) Cupressaceae pollen by lag", 
                                           "  C) tree pollen", 
-                                          "D) tree pollen by lag",
-                                          "    E) other pollen",
-                                          "F) other pollen by lag"),
+                                          "D) tree pollen by lag"
+                                          # "    E) other pollen",
+                                          # "F) other pollen by lag"
+                                          ),
                      rel_widths = c(0.8, 1, 0.8, 1),
                      label_size = 11, label_x = 0.14, label_y = 0.9, hjust = 0, vjust = 0)
 #fig234
 fig_234_name <- paste0("Z:/THCIC/Katz/results/",
                        "fig234_pol_ages",age_low,"_",age_hi,"_dist_25km", "_",Sys.Date(),".jpg") #NAB_min_dist_threshold
 ggsave(file = fig_234_name, plot = fig234,
-       height = 25, width = 21, units = "cm", dpi = 300)
+       height = 18, width = 21, units = "cm", dpi = 300)
 
 
 ### visualize effects of viruses ###############################################################
@@ -1256,7 +1265,7 @@ model1_novirus <- glm(n_cases ~  #number of cases at a station on an observed da
                 offset(log(agegroup_x_pop)) +  #offset for the population of a study area
                 cup_lag +  trees_lag  + pol_other_lag + #dlnm crossbasis for each pollen type
                 on_break +
-                ns(days_since_win_break, df = 3) +
+                ns(days_since_win_break, df = 5) +
                 ns(days_since_sum_break, df = 3) +
                 met_tmaxdegc_s +
                 met_tmindegc_s +
@@ -1314,8 +1323,10 @@ model1_nopal <- glm(n_cases ~  #number of cases at a station on an observed day
                 #cup_lag +  trees_lag  + pol_other_lag + #dlnm crossbasis for each pollen type
                 rhino_lag + corona_lag  + rsv_lag +  flu_lag +
                 on_break +
-                bs(days_since_win_break, df = 4) +
-                bs(days_since_sum_break, df = 4) +
+                bs(days_since_win_break, df = 5) +
+                bs(days_since_sum_break, df = 3) +
+                met_tmaxdegc_s +
+                met_tmindegc_s +
                 week_day, #day of week term
               family = quasipoisson, #quasipoisson
               data = data_for_model)  
@@ -1375,7 +1386,7 @@ table2_no_p_v_SI_paste
 
 
 
-### another version of everything that needs to be pasted into the tables in word ####################☻
+### another version of everything that needs to be pasted into the tables in word ####################
 
 #table 2
 write.table(table2_paste, "clipboard", sep="\t", row.names=FALSE, col.names=FALSE, quote = FALSE)
