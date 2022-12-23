@@ -30,6 +30,7 @@ library(cowplot)
 opa_day_youngchildren <- read_csv("Z:/THCIC/Katz/opa_day_ages_0_4_dist_25_2022-12-21.csv", guess_max = 8260)
 opa_day_schoolchildren <- read_csv("Z:/THCIC/Katz/opa_day_ages_5_17_dist_25_2022-12-21.csv", guess_max = 8260)
 opa_day_adult <- read_csv("Z:/THCIC/Katz/opa_day_ages_18_99_dist_25_2022-12-21.csv", guess_max = 8260)
+#sum(opa_day_youngchildren$n_cases) +sum(opa_day_schoolchildren$n_cases) + sum(opa_day_adult$n_cases)
 
 #50 km sensitivity analysis
 # opa_day_youngchildren <- read_csv("Z:/THCIC/Katz/opa_day_ages_0_4_dist_50_2022-12-21.csv", guess_max = 8260)
@@ -64,7 +65,7 @@ opa_day_youngchildren %>%
             schoolkids_pop_sum = sum(schoolkids_pop),
             adult_pop_sum = sum(adult_pop))
 
-### fig 2: time series of each var ############################################################
+### fig 1: time series of each var ############################################################
 #names(opa_day_schoolchildren)
 
 #time series for ED visits: young children
@@ -1641,8 +1642,17 @@ write.table(trees_by_city_mar_wholeyear, "clipboard", sep="\t", row.names=FALSE,
 #   coord_cartesian(ylim = c(0.02, 0.2)) 
 
 
-
-
-
-
+# #what's up with San Antonio A vs B?
+# names(opa_day)
+# opa_day %>% filter(NAB_station == "San Antonio A" | NAB_station == "San Antonio B") %>% 
+# ggplot(aes(x =date, y = cup_all_m2 , color = NAB_station)) + geom_point() + 
+# geom_line(aes(x = date, y = rollmean(cup_all_m2, 7, na.pad=TRUE)) ) 
+# 
+# 
+# opa_day %>% filter(NAB_station == "San Antonio A" | NAB_station == "San Antonio B") %>% 
+#   ggplot(aes(x =date, y = trees_m2 , color = NAB_station)) + geom_point() + 
+#   geom_line(aes(x = date, y = rollmean(trees_m2, 7, na.pad=TRUE)) ) 
+# 
+# opa_day %>% filter(NAB_station == "San Antonio A" | NAB_station == "San Antonio B") %>% 
+#   ggplot(aes(x = cup_all_m2 , fill = NAB_station)) + geom_histogram(position = "dodge")
 
