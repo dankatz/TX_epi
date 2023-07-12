@@ -549,7 +549,7 @@ model1 <- glm(n_cases ~  #number of cases at a station on an observed day
                 offset(log(agegroup_x_pop)) +  #offset for the population of a study area
                 on_break +
                 ns(days_since_win_break, df = 3) +
-                ns(days_since_sum_break, df = 2) +
+                ns(days_since_sum_break, df = 3) +
                 #bs(days_since_holiday, df = 4) + #
                 cup_lag +  trees_lag + pol_other_lag + #dlnm crossbasis for each pollen type
                 #cup_all_lm + trees_lm + pol_other_lm +
@@ -939,6 +939,185 @@ fig_234_name <- paste0("Z:/THCIC/Katz/results/",
                        "fig234_pol_ages",age_low,"_",age_hi,"_dist_25km", "_",Sys.Date(),".jpg") #NAB_min_dist_threshold
 ggsave(file = fig_234_name, plot = fig234,
        height = 18, width = 21, units = "cm", dpi = 300)
+
+
+
+### Fig 2: combines school children and adults #############################################
+#run the model first for school kids and then create panels A-D
+#### cup
+pred1_cup_school_kids <- crosspred(cup_lag,  model2, #at = 1,
+                       at = seq(from = 0, to = max(data_for_model$cup_all_m2), by = 10), 
+                       bylag = 0.5, cen = 0, cumul = TRUE) #str(pred1_cup)
+
+cup_rr_panel_school_kids <- 
+  data.frame(pol_conc = (pred1_cup_school_kids$predvar), 
+             mean = pred1_cup_school_kids$allRRfit,
+             lower = pred1_cup_school_kids$allRRlow,
+             upper = pred1_cup_school_kids$allRRhigh) %>% 
+  filter(pol_conc < quantile(data_for_model$cup_all_m2, 0.99)) %>% #removing the extreme values from this fig
+  
+  ggplot(aes(x = pol_conc, y = mean, ymin = lower, ymax = upper))+
+  geom_ribbon(alpha=0.1)+ geom_line()+ geom_hline(lty=2, yintercept = 1)+ # horizontal reference line at no change in odds
+  xlab(expression(paste("Cupressaceae (pollen grains / m"^"3",")")))+ ylab('RR')+theme_few() +
+  coord_cartesian(xlim = c(0, quantile(data_for_model$cup_all_m2, 0.99)))#+ scale_x_log10() +   annotation_logticks(sides = "b")  
+#ggtitle(paste0("ages ", age_low, "-", age_hi, "  n_cases = ", sum(data_for_model$n_cases))) 
+cup_rr_panel_school_kids
+cup_rr_panel_school_kids <- cup_rr_panel_school_kids + geom_rug(data = data_for_model, aes(x = cup_all_m2 ), sides = "t", alpha = 0.05, inherit.aes = FALSE)
+
+cup_lag_rr_panel_school_kids <-
+  as.data.frame(exp(pred1_cup_school_kids$cumfit)) %>% mutate(pol_conc = pred1_cup_school_kids$predvar) %>% 
+  pivot_longer(., cols = contains("lag"), names_to = "lag", values_to = "RR") %>% 
+  mutate(lag = as.numeric(gsub(pattern = "lag", replacement = "", x = lag)),
+         pol_conc_exp = pol_conc) %>% 
+  filter(pol_conc < quantile(data_for_model$cup_all_m2, 0.99)) %>% #removing the extreme values from this fig
+  ggplot(aes(x = pol_conc, y = lag, z = RR, color = RR))  + theme_few() +
+  xlab(expression(paste("Cupressaceae (pollen grains / m"^"3",")")))+ #scale_x_log10() +   annotation_logticks(sides = "b")  
+  scale_color_viridis_c(option = "plasma", direction = -1, name = "RR") +  geom_point(size = NA) + #for making the discrete legend continuous
+  geom_contour_filled(bins = 40) +  scale_fill_viridis_d(option = "plasma", direction = -1, name = "RR")  + guides(fill = "none")
+
+
+#### trees 
+pred1_trees_school_kids <- crosspred(trees_lag,  model2, #at = 1,
+                         at = seq(from = 0, to = max(data_for_model$trees_m2), by = 10), 
+                         bylag = 0.5, cen = 0, cumul = TRUE) #str(pred1_cup)
+
+trees_rr_panel_school_kids <- 
+  data.frame(pol_conc = (pred1_trees_school_kids$predvar), 
+             mean = pred1_trees_school_kids$allRRfit,
+             lower = pred1_trees_school_kids$allRRlow,
+             upper = pred1_trees_school_kids$allRRhigh) %>% 
+  filter(pol_conc < quantile(data_for_model$trees_m2, 0.99)) %>% #removing the extreme values from this fig
+  
+  ggplot(aes(x = pol_conc, y = mean, ymin = lower, ymax = upper))+
+  geom_ribbon(alpha=0.1)+ geom_line()+ geom_hline(lty=2, yintercept = 1)+ # horizontal reference line at no change in odds
+  xlab(expression(paste("trees (pollen grains / m"^"3",")")))+ ylab('RR')+theme_few() +
+  coord_cartesian(xlim = c(0, quantile(data_for_model$trees_m2, 0.99)))#+ scale_x_log10() +   annotation_logticks(sides = "b")  
+#ggtitle(paste0("ages ", age_low, "-", age_hi, "  n_cases = ", sum(data_for_model$n_cases))) 
+trees_rr_panel_school_kids
+trees_rr_panel_school_kids <- trees_rr_panel_school_kids + geom_rug(data = data_for_model, aes(x = trees_m2 ), sides = "t", alpha = 0.05, inherit.aes = FALSE)
+
+trees_lag_rr_panel_school_kids <-
+  as.data.frame(exp(pred1_trees_school_kids$cumfit)) %>% mutate(pol_conc = pred1_trees_school_kids$predvar) %>% 
+  pivot_longer(., cols = contains("lag"), names_to = "lag", values_to = "RR") %>% 
+  mutate(lag = as.numeric(gsub(pattern = "lag", replacement = "", x = lag)),
+         pol_conc_exp = pol_conc) %>% 
+  filter(pol_conc < quantile(data_for_model$trees_m2, 0.99)) %>% #removing the extreme values from this fig
+  ggplot(aes(x = pol_conc, y = lag, z = RR, color = RR))  + theme_few() +
+  xlab(expression(paste("trees (pollen grains / m"^"3",")")))+ #scale_x_log10() +   annotation_logticks(sides = "b")  
+  scale_color_viridis_c(option = "plasma", direction = -1, name = "RR") +  geom_point(size = NA) + #for making the discrete legend continuous
+  geom_contour_filled(bins = 99) +  scale_fill_viridis_d(option = "plasma", direction = -1, name = "RR")  + guides(fill = "none")
+
+
+#### run the model next for adults
+#### cup
+pred1_cup_adults <- crosspred(cup_lag,  model2, #at = 1,
+                                   at = seq(from = 0, to = max(data_for_model$cup_all_m2), by = 10), 
+                                   bylag = 0.5, cen = 0, cumul = TRUE) #str(pred1_cup)
+
+cup_rr_panel_adults <- 
+  data.frame(pol_conc = (pred1_cup_adults$predvar), 
+             mean = pred1_cup_adults$allRRfit,
+             lower = pred1_cup_adults$allRRlow,
+             upper = pred1_cup_adults$allRRhigh) %>% 
+  filter(pol_conc < quantile(data_for_model$cup_all_m2, 0.99)) %>% #removing the extreme values from this fig
+  
+  ggplot(aes(x = pol_conc, y = mean, ymin = lower, ymax = upper))+
+  geom_ribbon(alpha=0.1)+ geom_line()+ geom_hline(lty=2, yintercept = 1)+ # horizontal reference line at no change in odds
+  xlab(expression(paste("Cupressaceae (pollen grains / m"^"3",")")))+ ylab('RR')+theme_few() +
+  coord_cartesian(xlim = c(0, quantile(data_for_model$cup_all_m2, 0.99)))#+ scale_x_log10() +   annotation_logticks(sides = "b")  
+#ggtitle(paste0("ages ", age_low, "-", age_hi, "  n_cases = ", sum(data_for_model$n_cases))) 
+cup_rr_panel_adults
+cup_rr_panel_adults <- cup_rr_panel_adults + geom_rug(data = data_for_model, aes(x = cup_all_m2 ), sides = "t", alpha = 0.05, inherit.aes = FALSE)
+
+cup_lag_rr_panel_adults <-
+  as.data.frame(exp(pred1_cup_adults$cumfit)) %>% mutate(pol_conc = pred1_cup_adults$predvar) %>% 
+  pivot_longer(., cols = contains("lag"), names_to = "lag", values_to = "RR") %>% 
+  mutate(lag = as.numeric(gsub(pattern = "lag", replacement = "", x = lag)),
+         pol_conc_exp = pol_conc) %>% 
+  filter(pol_conc < quantile(data_for_model$cup_all_m2, 0.99)) %>% #removing the extreme values from this fig
+  ggplot(aes(x = pol_conc, y = lag, z = RR, color = RR))  + theme_few() +
+  xlab(expression(paste("Cupressaceae (pollen grains / m"^"3",")")))+ #scale_x_log10() +   annotation_logticks(sides = "b")  
+  scale_color_viridis_c(option = "plasma", direction = -1, name = "RR") +  geom_point(size = NA) + #for making the discrete legend continuous
+  geom_contour_filled(bins = 40) +  scale_fill_viridis_d(option = "plasma", direction = -1, name = "RR")  + guides(fill = "none")
+
+
+#### trees 
+pred1_trees_adults <- crosspred(trees_lag,  model2, #at = 1,
+                                     at = seq(from = 0, to = max(data_for_model$trees_m2), by = 10), 
+                                     bylag = 0.5, cen = 0, cumul = TRUE) #str(pred1_cup)
+
+trees_rr_panel_adults <- 
+  data.frame(pol_conc = (pred1_trees_adults$predvar), 
+             mean = pred1_trees_adults$allRRfit,
+             lower = pred1_trees_adults$allRRlow,
+             upper = pred1_trees_adults$allRRhigh) %>% 
+  filter(pol_conc < quantile(data_for_model$trees_m2, 0.99)) %>% #removing the extreme values from this fig
+  
+  ggplot(aes(x = pol_conc, y = mean, ymin = lower, ymax = upper))+
+  geom_ribbon(alpha=0.1)+ geom_line()+ geom_hline(lty=2, yintercept = 1)+ # horizontal reference line at no change in odds
+  xlab(expression(paste("trees (pollen grains / m"^"3",")")))+ ylab('RR')+theme_few() +
+  coord_cartesian(xlim = c(0, quantile(data_for_model$trees_m2, 0.99)))#+ scale_x_log10() +   annotation_logticks(sides = "b")  
+#ggtitle(paste0("ages ", age_low, "-", age_hi, "  n_cases = ", sum(data_for_model$n_cases))) 
+trees_rr_panel_adults
+trees_rr_panel_adults <- trees_rr_panel_adults + geom_rug(data = data_for_model, aes(x = trees_m2 ), sides = "t", alpha = 0.05, inherit.aes = FALSE)
+
+trees_lag_rr_panel_adults <-
+  as.data.frame(exp(pred1_trees_adults$cumfit)) %>% mutate(pol_conc = pred1_trees_adults$predvar) %>% 
+  pivot_longer(., cols = contains("lag"), names_to = "lag", values_to = "RR") %>% 
+  mutate(lag = as.numeric(gsub(pattern = "lag", replacement = "", x = lag)),
+         pol_conc_exp = pol_conc) %>% 
+  filter(pol_conc < quantile(data_for_model$trees_m2, 0.99)) %>% #removing the extreme values from this fig
+  ggplot(aes(x = pol_conc, y = lag, z = RR, color = RR))  + theme_few() +
+  xlab(expression(paste("trees (pollen grains / m"^"3",")")))+ #scale_x_log10() +   annotation_logticks(sides = "b")  
+  scale_color_viridis_c(option = "plasma", direction = -1, name = "RR") +  geom_point(size = NA) + #for making the discrete legend continuous
+  geom_contour_filled(bins = 99) +  scale_fill_viridis_d(option = "plasma", direction = -1, name = "RR")  + guides(fill = "none")
+
+#### constructing the sub-grids for fig 2
+fig2_kids <- #?plot_grid
+  cowplot::plot_grid(cup_rr_panel_school_kids, cup_lag_rr_panel_school_kids,
+                     trees_rr_panel_school_kids, trees_lag_rr_panel_school_kids,
+                     ncol = 2, labels = c("  A) Cupressaceae pollen", 
+                                          "B) Cupressaceae pollen by lag", 
+                                          "  C) tree pollen", 
+                                          "D) tree pollen by lag"
+                     ),
+                     rel_widths = c(0.8, 1, 0.8, 1),
+                     label_size = 11, label_x = 0.14, label_y = 0.9, hjust = 0, vjust = 0)
+
+fig2_adults <- #?plot_grid
+  cowplot::plot_grid(cup_rr_panel_adults, cup_lag_rr_panel_adults,
+                     trees_rr_panel_adults, trees_lag_rr_panel_adults,
+                     ncol = 2, labels = c( 
+                                        "  E) Cupressaceae pollen", 
+                                        "F) Cupressaceae pollen by lag", 
+                                        "  G) tree pollen", 
+                                        "H) tree pollen by lag"
+                     ),
+                     rel_widths = c(0.8, 1, 0.8, 1),
+                     label_size = 11, label_x = 0.14, label_y = 0.9, hjust = 0, vjust = 0)
+
+# creating the titles for school kids and adult grids
+title_kids <- ggdraw() +  draw_label( "school children",  fontface = 'bold', angle = 90) +
+  theme( plot.margin = margin(0,0, 0, 10) )
+title_adults <- ggdraw() +  draw_label( "adults",  fontface = 'bold', angle = 90) +
+  theme( plot.margin = margin(0,0, 0, 10) )
+
+# construct fig 2, including the vertical grid titles and grids for school kids and adults
+fig2 <- plot_grid(
+  title_kids, fig2_kids,
+  title_adults, fig2_adults,
+  ncol = 2,
+  # rel_heights values control vertical title margins
+  rel_widths = c(0.03, 1,  0.03, 1),
+  align = "v")
+
+fig_2_name <- paste0("Z:/THCIC/Katz/results/",
+                       "fig2_school_kids_adults_dist_25km", "_",Sys.Date(),".jpg") #NAB_min_dist_threshold
+ggsave(file = fig_2_name, plot = fig2,
+       height = 36, width = 21, units = "cm", dpi = 300)
+
+
+
 
 
 ### visualize effects of viruses ###############################################################
@@ -1359,7 +1538,7 @@ for(i in 1:8){
   
   jan_cup_for_table3$NAB_station[i] <- NAB_list[i]
   jan_cup_for_table3$attr_formatted[i] <- paste0(100 *round(mean(attr_tf_cup_jan), 3), " (",
-                                                 100 *round(quantile(attr_tf_cup_jan, c(0.025)), 3), " - ",
+                                                 100 *round(quantile(attr_tf_cup_jan, c(0.025)), 3), " – ",
                                                  100 *round(quantile(attr_tf_cup_jan, c(0.975)), 3), ")")
 }
 
@@ -1375,7 +1554,7 @@ for(i in 1:8){
   
   cup_for_table3$NAB_station[i] <- NAB_list[i]
   cup_for_table3$attr_formatted[i] <- paste0(100 * round(mean(attr_tf_cup), 3), " (",
-                                             100 * round(quantile(attr_tf_cup, c(0.025)), 3), " - ",
+                                             100 * round(quantile(attr_tf_cup, c(0.025)), 3), " – ",
                                              100 * round(quantile(attr_tf_cup, c(0.975)), 3), ")")
 }
 
@@ -1390,7 +1569,7 @@ for(i in 1:8){
    
   march_trees_for_table3$NAB_station[i] <- NAB_list[i]
   march_trees_for_table3$attr_formatted[i] <- paste0(100 *round(mean(attr_tf_trees_march), 3), " (",
-                                                     100 *round(quantile(attr_tf_trees_march, c(0.025)), 3), " - ",
+                                                     100 *round(quantile(attr_tf_trees_march, c(0.025)), 3), " – ",
                                                      100 *round(quantile(attr_tf_trees_march, c(0.975)), 3), ")")
 }
 
@@ -1406,7 +1585,7 @@ for(i in 1:8){
   
   trees_for_table3$NAB_station[i] <- NAB_list[i]
   trees_for_table3$attr_formatted[i] <- paste0(100 * round(mean(attr_tf_tree), 3), " (",
-                                               100 * round(quantile(attr_tf_tree, c(0.025)), 3), " - ",
+                                               100 * round(quantile(attr_tf_tree, c(0.025)), 3), " – ",
                                                100 * round(quantile(attr_tf_tree, c(0.975)), 3), ")")
 }
 
