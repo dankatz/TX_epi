@@ -16,7 +16,7 @@ library(imputeTS)
 library(ggthemes)
 library(zoo)
 
-setwd("C:/Users/dsk273/Box")
+setwd("C:/Users/danka/Box")
 here::i_am("katz_photo.jpg")
 
 
@@ -115,6 +115,52 @@ nab2019_2021_tx_join <- nab2019_2021_tx %>% dplyr::select(-Station.ID, -Station.
 nab2009_2021_tx <-  bind_rows(nab2009_2019_tx_join, nab2019_2021_tx_join)
 
 names(nab2009_2021_tx)
+
+
+### summarizing plant taxa at each NAB station for an SI section #####################################################
+NAB_tx_pol <- left_join(nab2009_2021_tx, NAB_locations) %>%
+  filter(!is.na(NAB_station)) %>% 
+  mutate(date = ymd(Date))
+
+names(NAB_tx_pol)
+
+NAB_tx_pol_long <- NAB_tx_pol %>% 
+  select(-c(48:85)) %>% 
+  select(-site) %>% 
+  pivot_longer(cols = 3:44, names_to = "taxon", values_to = "pollen") %>% 
+  mutate(year_s = year(date)) %>% 
+  filter(!is.na(pollen))
+
+
+mean_annual_pollen <- NAB_tx_pol_long %>% 
+  group_by(taxon, NAB_station, year_s) %>% 
+  summarize(sum_annual_pollen = sum(pollen)) %>% 
+  group_by(NAB_station, taxon) %>% 
+  summarize(mean_annual_pollen = mean(sum_annual_pollen)) %>% 
+  group_by(NAB_station) %>% 
+  summarize(total_mean_annual_pollen = sum(mean_annual_pollen))
+
+  
+#Fig SI 2
+  NAB_tx_pol_long %>% 
+  group_by(taxon, NAB_station, year_s) %>% 
+  summarize(sum_annual_pollen = sum(pollen)) %>% 
+  group_by(NAB_station, taxon) %>% 
+  summarize(mean_annual_pollen = mean(sum_annual_pollen)) %>% 
+  arrange(NAB_station, -mean_annual_pollen) %>% 
+  left_join(., mean_annual_pollen) %>% 
+  mutate(rel_pol = round(mean_annual_pollen/total_mean_annual_pollen, 3)) %>% 
+  filter(rel_pol > 0.01) %>% 
+  filter(NAB_station != "Waco B") %>% 
+  mutate(taxon = case_when(taxon == "Gramineae...Poaceae" ~ "Poaceae",
+                           taxon ==  "Asteraceae..Excluding.Ambrosia.and.Artemisia." ~ "Asteraceae",
+                           taxon == "Other.Grass.Pollen" ~ "Poaceae",
+                           TRUE ~ taxon)) %>% 
+   #group_by(taxon) %>% summarize(mean_rel_pol = mean(rel_pol))  #proportion of each taxon
+  ggplot(aes(x= reorder(taxon, - rel_pol), y = rel_pol*100)) + geom_col() + theme_bw() + facet_wrap(~NAB_station, scales = "free")+
+    scale_x_discrete(guide = guide_axis(angle = 45)) + xlab("pollen type") + ylab("relative pollen abundance (%)")
+
+
 
 ### adding in station metadata ########################################################################################
 NAB_locations <- read_csv(here("texas", "NAB", "EPHT_Pollen Station Inventory_062019_dk220318.csv")) %>% 
